@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useForm, Controller } from "react-hook-form";
+import { useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -17,6 +18,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Check, ChevronRight, ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import logo from "@assets/ClaimsIQ_Logo_02-09[31]_1767489942619.png";
+import type { OnboardingFormData, CompanySize } from "@shared/types";
 
 // Validation Schemas
 const companySchema = z.object({
@@ -75,12 +77,102 @@ export default function Onboarding() {
     window.scrollTo(0, 0);
   };
 
+  // API mutation for submitting onboarding form
+  const submitMutation = useMutation({
+    mutationFn: async (data: OnboardingFormData) => {
+      const response = await fetch('/api/onboarding/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Submission failed');
+      }
+      return result;
+    },
+    onSuccess: (result) => {
+      toast({
+        title: "Statement of Work Generated",
+        description: "Your onboarding has been submitted successfully!",
+      });
+      // Store the project ID for reference
+      localStorage.setItem('lastProjectId', result.projectId);
+      setTimeout(() => setLocation("/"), 1500);
+    },
+    onError: (error) => {
+      toast({
+        title: "Submission Failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Transform form data to API format
+  const transformFormData = (data: any): OnboardingFormData => {
+    // Map company size
+    const sizeMap: Record<string, CompanySize> = {
+      '1-50': 'micro',
+      '51-200': 'small',
+      '201-1000': 'medium',
+      '1000+': 'large',
+    };
+
+    return {
+      company: {
+        legal_name: data.legalName,
+        dba_name: data.dba || undefined,
+        website: data.website || undefined,
+        address_line_1: data.address,
+        address_line_2: data.address2 || undefined,
+        city: data.city,
+        state: data.state,
+        postal_code: data.zip,
+        company_size: sizeMap[data.companySize] || undefined,
+        lines_of_business: data.linesOfBusiness || [],
+      },
+      contact: {
+        first_name: data.firstName,
+        last_name: data.lastName,
+        email: data.email,
+        phone: data.phone || undefined,
+        title: data.title || undefined,
+      },
+      modules: {
+        core: (data.selectedModules || []).includes('core'),
+        comms: (data.selectedModules || []).includes('comms'),
+        fnol: (data.selectedModules || []).includes('fnol'),
+      },
+      requirements: {
+        core: (data.selectedModules || []).includes('core') ? {
+          claim_types: [],
+          perils: [],
+          document_types: Object.entries(data.docTypes || {})
+            .filter(([_, v]) => v)
+            .map(([k]) => k),
+          monthly_claim_volume: data.monthlyClaims ? parseInt(data.monthlyClaims) : undefined,
+        } : undefined,
+        comms: (data.selectedModules || []).includes('comms') ? {
+          desired_channels: Object.entries(data.channels || {})
+            .filter(([_, v]) => v)
+            .map(([k]) => k),
+          white_label_level: data.whiteLabelLevel || 'none',
+          languages_required: ['English'],
+        } : undefined,
+        fnol: (data.selectedModules || []).includes('fnol') ? {
+          desired_intake_methods: ['web'],
+          lines_of_business: data.linesOfBusiness || [],
+          photo_required: data.fnol?.photos || false,
+          video_required: data.fnol?.video || false,
+        } : undefined,
+      },
+    };
+  };
+
   const handleSubmit = () => {
-    toast({
-      title: "Statement of Work Generated",
-      description: "Redirecting to your portal...",
-    });
-    setTimeout(() => setLocation("/portal/sow"), 1500);
+    const apiData = transformFormData(formData);
+    submitMutation.mutate(apiData);
   };
 
   return (
@@ -148,7 +240,7 @@ export default function Onboarding() {
                 {step === 2 && <Step2Contact defaultValues={formData} onNext={handleNext} onBack={handleBack} />}
                 {step === 3 && <Step3Modules defaultValues={formData} onNext={handleNext} onBack={handleBack} />}
                 {step === 4 && <Step4Requirements defaultValues={formData} onNext={handleNext} onBack={handleBack} />}
-                {step === 5 && <Step5Review data={formData} onSubmit={handleSubmit} onBack={handleBack} />}
+                {step === 5 && <Step5Review data={formData} onSubmit={handleSubmit} onBack={handleBack} isSubmitting={submitMutation.isPending} />}
               </motion.div>
             </AnimatePresence>
           </CardContent>
@@ -515,14 +607,12 @@ function Step4Requirements({ defaultValues, onNext, onBack }: any) {
   );
 }
 
-function Step5Review({ data, onSubmit, onBack }: any) {
-  const [isSubmitting, setIsSubmitting] = useState(false);
+function Step5Review({ data, onSubmit, onBack, isSubmitting }: { data: any; onSubmit: () => void; onBack: () => void; isSubmitting: boolean }) {
   const [confirmed, setConfirmed] = useState(false);
 
   const handleSubmit = () => {
-    if (!confirmed) return;
-    setIsSubmitting(true);
-    setTimeout(onSubmit, 2000);
+    if (!confirmed || isSubmitting) return;
+    onSubmit();
   };
 
   return (

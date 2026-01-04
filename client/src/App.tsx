@@ -8,11 +8,13 @@ import Home from "@/pages/home";
 import Onboarding from "@/pages/onboarding";
 import Portal from "@/pages/portal";
 import AdminDashboard from "@/pages/admin";
+import LoginPage from "@/pages/login";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/login" component={LoginPage} />
       <Route path="/onboarding" component={Onboarding} />
       <Route path="/portal" component={Portal} />
       <Route path="/portal/*" component={Portal} />
