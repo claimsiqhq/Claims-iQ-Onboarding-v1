@@ -3,6 +3,7 @@ import { requireAuth, requireStaff } from '../middleware/auth';
 import { updateProjectSchema } from '../../shared/validation';
 import { fromZodError } from 'zod-validation-error';
 import type { ProjectSummary } from '../../shared/types';
+import { notifyStatusChange } from '../services/statusNotification';
 
 const router = Router();
 
@@ -223,6 +224,20 @@ router.patch('/projects/:projectId', async (req: Request, res: Response): Promis
         previous_status: existing.status,
       },
     });
+
+    // Send status notification if status changed
+    if (parseResult.data.status && parseResult.data.status !== existing.status) {
+      // Send notification asynchronously (don't block the response)
+      notifyStatusChange(projectId, existing.status, parseResult.data.status)
+        .then((result) => {
+          if (!result.success) {
+            console.warn('Status notification failed:', result.error);
+          }
+        })
+        .catch((err) => {
+          console.error('Status notification error:', err);
+        });
+    }
 
     res.json({ success: true });
   } catch (error) {

@@ -5,6 +5,7 @@ import authRoutes from "./routes/auth";
 import onboardingRoutes from "./routes/onboarding";
 import portalRoutes from "./routes/portal";
 import adminRoutes from "./routes/admin";
+import inviteRoutes from "./routes/invite";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -21,6 +22,7 @@ export async function registerRoutes(
   app.use("/api/onboarding", onboardingRoutes);
   app.use("/api/portal", portalRoutes);
   app.use("/api/admin", adminRoutes);
+  app.use("/api/invites", inviteRoutes);
 
   // Health check endpoint
   app.get("/api/health", (req, res) => {
