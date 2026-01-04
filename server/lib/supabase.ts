@@ -1,19 +1,26 @@
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import type { Database } from '../../shared/types';
 
-// Server-side Supabase client
-// Uses the anon key - all RLS policies are enforced
+// Server-side Supabase configuration
+// Uses the secret key for admin operations (token verification, user lookups)
+// See: https://supabase.com/docs/guides/api/api-keys
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
+const supabasePublishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing Supabase environment variables. Please set SUPABASE_URL and SUPABASE_ANON_KEY');
+if (!supabaseUrl) {
+  console.error('Missing Supabase URL. Please set SUPABASE_URL environment variable');
 }
 
-// Create the base Supabase client for server-side operations
+if (!supabaseSecretKey && !supabasePublishableKey) {
+  console.error('Missing Supabase key. Please set SUPABASE_SECRET_KEY or VITE_SUPABASE_PUBLISHABLE_KEY');
+}
+
+// Create the base Supabase client for server-side admin operations
+// Uses secret key if available (bypasses RLS), falls back to publishable key
 export const supabase = createClient<Database>(
   supabaseUrl || '',
-  supabaseAnonKey || '',
+  supabaseSecretKey || supabasePublishableKey || '',
   {
     auth: {
       autoRefreshToken: false,
@@ -24,12 +31,12 @@ export const supabase = createClient<Database>(
 
 /**
  * Create an authenticated Supabase client for a specific user
- * This should be used when making requests on behalf of an authenticated user
+ * This uses the publishable key with the user's access token for RLS enforcement
  */
 export function createAuthenticatedClient(accessToken: string): SupabaseClient<Database> {
   return createClient<Database>(
     supabaseUrl || '',
-    supabaseAnonKey || '',
+    supabasePublishableKey || supabaseSecretKey || '',
     {
       auth: {
         autoRefreshToken: false,
