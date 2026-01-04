@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm, Controller } from "react-hook-form";
-import { useMutation } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link, useLocation, useParams } from "wouter";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
@@ -12,13 +12,21 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, ChevronRight, ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
+import { Check, ChevronRight, ArrowLeft, ArrowRight, Loader2, ShieldX, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import logo from "@assets/ClaimsIQ_Logo_02-09[31]_1767489942619.png";
 import type { OnboardingFormData, CompanySize } from "@shared/types";
+
+// Types for invite validation
+interface InviteData {
+  email: string;
+  companyName?: string;
+  expiresAt: string;
+}
 
 // Validation Schemas
 const companySchema = z.object({
@@ -57,7 +65,75 @@ const STEPS = [
   { id: 5, label: "Review" },
 ];
 
+// Access Denied Component for invalid/missing invite
+function AccessDenied({ error }: { error?: string }) {
+  return (
+    <div className="min-h-screen bg-muted/20 flex flex-col font-sans">
+      <header className="bg-card border-b border-border">
+        <div className="container max-w-screen-xl px-4 h-16 flex items-center">
+          <Link href="/">
+            <div className="flex items-center gap-2 font-bold text-lg text-primary cursor-pointer font-display">
+              <img src={logo} alt="Claims iQ" className="h-6 w-6 object-contain" />
+              <span>Claims iQ</span>
+            </div>
+          </Link>
+        </div>
+      </header>
+
+      <main className="flex-1 flex items-center justify-center p-4">
+        <Card className="max-w-md w-full">
+          <CardHeader className="text-center">
+            <div className="mx-auto w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
+              <ShieldX className="h-8 w-8 text-destructive" />
+            </div>
+            <CardTitle className="text-2xl">Access Required</CardTitle>
+            <CardDescription>
+              {error || "You need a valid invite link to access the onboarding form."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Alert>
+              <Mail className="h-4 w-4" />
+              <AlertDescription>
+                Contact your Claims iQ representative to receive an invite link.
+              </AlertDescription>
+            </Alert>
+            <div className="flex flex-col gap-2">
+              <Link href="/">
+                <Button variant="outline" className="w-full">
+                  <ArrowLeft className="mr-2 h-4 w-4" /> Return Home
+                </Button>
+              </Link>
+              <Link href="/login">
+                <Button className="w-full">
+                  Sign In to Portal
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </main>
+    </div>
+  );
+}
+
+// Loading Component
+function LoadingInvite() {
+  return (
+    <div className="min-h-screen bg-muted/20 flex items-center justify-center">
+      <div className="text-center space-y-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+        <p className="text-muted-foreground">Validating your invite...</p>
+      </div>
+    </div>
+  );
+}
+
 export default function Onboarding() {
+  // Get invite token from URL params
+  const params = useParams<{ token?: string }>();
+  const inviteToken = params.token;
+
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<any>({
     linesOfBusiness: [],
@@ -65,6 +141,50 @@ export default function Onboarding() {
   });
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+
+  // Validate invite token
+  const { data: inviteData, isLoading: inviteLoading, error: inviteError } = useQuery({
+    queryKey: ['invite', inviteToken],
+    queryFn: async () => {
+      if (!inviteToken) {
+        throw new Error('No invite token provided');
+      }
+      const response = await fetch(`/api/onboarding/validate-invite/${inviteToken}`);
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Invalid invite');
+      }
+      return result.invite as InviteData;
+    },
+    enabled: !!inviteToken,
+    retry: false,
+  });
+
+  // Pre-fill form data from invite
+  useEffect(() => {
+    if (inviteData) {
+      setFormData((prev: any) => ({
+        ...prev,
+        email: inviteData.email,
+        legalName: inviteData.companyName || prev.legalName,
+      }));
+    }
+  }, [inviteData]);
+
+  // Show access denied if no token
+  if (!inviteToken) {
+    return <AccessDenied />;
+  }
+
+  // Show loading while validating
+  if (inviteLoading) {
+    return <LoadingInvite />;
+  }
+
+  // Show access denied on error
+  if (inviteError || !inviteData) {
+    return <AccessDenied error={inviteError instanceof Error ? inviteError.message : 'Invalid or expired invite'} />;
+  }
 
   const handleNext = (data: any) => {
     setFormData((prev: any) => ({ ...prev, ...data }));
@@ -79,7 +199,7 @@ export default function Onboarding() {
 
   // API mutation for submitting onboarding form
   const submitMutation = useMutation({
-    mutationFn: async (data: OnboardingFormData) => {
+    mutationFn: async (data: OnboardingFormData & { inviteToken: string }) => {
       const response = await fetch('/api/onboarding/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -94,7 +214,7 @@ export default function Onboarding() {
     onSuccess: (result) => {
       toast({
         title: "Statement of Work Generated",
-        description: "Your onboarding has been submitted successfully!",
+        description: result.message || "Your onboarding has been submitted successfully!",
       });
       // Store the project ID for reference
       localStorage.setItem('lastProjectId', result.projectId);
@@ -172,7 +292,7 @@ export default function Onboarding() {
 
   const handleSubmit = () => {
     const apiData = transformFormData(formData);
-    submitMutation.mutate(apiData);
+    submitMutation.mutate({ ...apiData, inviteToken: inviteToken! });
   };
 
   return (

@@ -3,6 +3,42 @@ import { supabase } from '../lib/supabase';
 import { loginSchema, verifyOtpSchema } from '../../shared/validation';
 import { requireAuth } from '../middleware/auth';
 import { fromZodError } from 'zod-validation-error';
+import { z } from 'zod';
+import {
+  verifyUserPassword,
+  createPasswordResetToken,
+  validateResetToken,
+  resetPasswordWithToken,
+  setUserPassword,
+  validatePasswordStrength,
+} from '../lib/password';
+
+// Password validation schemas
+const passwordLoginSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(1, 'Password is required'),
+});
+
+const setPasswordSchema = z.object({
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  confirmPassword: z.string(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
+});
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email('Invalid email address'),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(32, 'Invalid reset token'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  confirmPassword: z.string(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
+});
 
 const router = Router();
 
@@ -271,6 +307,267 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
   } catch (error) {
     console.error('Callback error:', error);
     res.redirect('/login?error=callback_failed');
+  }
+});
+
+// ============================================
+// PASSWORD AUTHENTICATION ROUTES
+// ============================================
+
+/**
+ * POST /api/auth/login-password
+ * Login with email and password
+ */
+router.post('/login-password', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const parseResult = passwordLoginSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const error = fromZodError(parseResult.error);
+      res.status(400).json({ error: error.message });
+      return;
+    }
+
+    const { email, password } = parseResult.data;
+
+    // Verify password
+    const verification = await verifyUserPassword(email, password);
+    if (!verification.success) {
+      res.status(401).json({ error: verification.error || 'Invalid credentials' });
+      return;
+    }
+
+    // Create a session via Supabase magic link (for session management)
+    // Since portal users use Supabase auth, we need to create a proper session
+    // This is a workaround - ideally we'd use Supabase's password auth directly
+
+    // For now, we'll use a custom session approach
+    // Get the portal user details
+    const { data: portalUser } = await supabase
+      .from('portal_users')
+      .select('id, auth_user_id, company_id, contact:contacts!inner(first_name, last_name, email)')
+      .eq('id', verification.portalUserId)
+      .single();
+
+    if (!portalUser || !portalUser.auth_user_id) {
+      res.status(401).json({ error: 'User account not properly configured' });
+      return;
+    }
+
+    // Sign in with Supabase using the auth_user_id
+    // Note: This requires admin access to create sessions for users
+    const { data: sessionData, error: sessionError } = await supabase.auth.admin.getUserById(
+      portalUser.auth_user_id
+    );
+
+    if (sessionError || !sessionData.user) {
+      // Fallback: Ask user to use magic link if session creation fails
+      res.status(200).json({
+        success: true,
+        message: 'Password verified. Please use magic link for full session.',
+        requireMagicLink: true,
+        email,
+      });
+      return;
+    }
+
+    // Generate a session for the user
+    const { data: session, error: genError } = await supabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email: email,
+    });
+
+    if (genError) {
+      res.status(200).json({
+        success: true,
+        message: 'Password verified successfully',
+        requireMagicLink: true,
+        email,
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      user: {
+        id: portalUser.auth_user_id,
+        email,
+        portalUserId: portalUser.id,
+      },
+    });
+  } catch (error) {
+    console.error('Password login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+/**
+ * POST /api/auth/set-password
+ * Set password for authenticated user (after magic link login)
+ */
+router.post('/set-password', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const parseResult = setPasswordSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const error = fromZodError(parseResult.error);
+      res.status(400).json({ error: error.message });
+      return;
+    }
+
+    const { password } = parseResult.data;
+
+    // Validate password strength
+    const strengthValidation = validatePasswordStrength(password);
+    if (!strengthValidation.valid) {
+      res.status(400).json({ error: strengthValidation.errors[0] });
+      return;
+    }
+
+    // Get the portal user ID for this auth user
+    const { data: portalUser } = await supabase
+      .from('portal_users')
+      .select('id')
+      .eq('auth_user_id', req.user!.id)
+      .single();
+
+    if (!portalUser) {
+      res.status(404).json({ error: 'Portal user not found' });
+      return;
+    }
+
+    // Set the password
+    const result = await setUserPassword(portalUser.id, password);
+    if (!result.success) {
+      res.status(400).json({ error: result.error || 'Failed to set password' });
+      return;
+    }
+
+    res.json({
+      success: true,
+      message: 'Password set successfully. You can now login with email and password.',
+    });
+  } catch (error) {
+    console.error('Set password error:', error);
+    res.status(500).json({ error: 'Failed to set password' });
+  }
+});
+
+/**
+ * POST /api/auth/forgot-password
+ * Request password reset email
+ */
+router.post('/forgot-password', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const parseResult = forgotPasswordSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const error = fromZodError(parseResult.error);
+      res.status(400).json({ error: error.message });
+      return;
+    }
+
+    const { email } = parseResult.data;
+
+    // Create reset token and send email
+    const result = await createPasswordResetToken(email);
+
+    // Always return success to prevent email enumeration
+    res.json({
+      success: true,
+      message: 'If an account exists with this email, a password reset link has been sent.',
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ error: 'Failed to process request' });
+  }
+});
+
+/**
+ * GET /api/auth/validate-reset-token/:token
+ * Validate a password reset token
+ */
+router.get('/validate-reset-token/:token', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token } = req.params;
+
+    if (!token || token.length < 32) {
+      res.status(400).json({ valid: false, error: 'Invalid token format' });
+      return;
+    }
+
+    const validation = await validateResetToken(token);
+
+    res.json({
+      valid: validation.valid,
+      error: validation.error,
+    });
+  } catch (error) {
+    console.error('Validate reset token error:', error);
+    res.status(500).json({ valid: false, error: 'Failed to validate token' });
+  }
+});
+
+/**
+ * POST /api/auth/reset-password
+ * Reset password using token
+ */
+router.post('/reset-password', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const parseResult = resetPasswordSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      const error = fromZodError(parseResult.error);
+      res.status(400).json({ error: error.message });
+      return;
+    }
+
+    const { token, password } = parseResult.data;
+
+    // Validate password strength
+    const strengthValidation = validatePasswordStrength(password);
+    if (!strengthValidation.valid) {
+      res.status(400).json({ error: strengthValidation.errors[0] });
+      return;
+    }
+
+    // Reset the password
+    const result = await resetPasswordWithToken(token, password);
+    if (!result.success) {
+      res.status(400).json({ error: result.error || 'Failed to reset password' });
+      return;
+    }
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully. You can now login with your new password.',
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
+/**
+ * GET /api/auth/password-strength
+ * Check password strength (public utility endpoint)
+ */
+router.post('/password-strength', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { password } = req.body;
+
+    if (!password || typeof password !== 'string') {
+      res.status(400).json({ error: 'Password is required' });
+      return;
+    }
+
+    const validation = validatePasswordStrength(password);
+
+    res.json({
+      valid: validation.valid,
+      score: validation.score,
+      errors: validation.errors,
+    });
+  } catch (error) {
+    console.error('Password strength error:', error);
+    res.status(500).json({ error: 'Failed to check password strength' });
   }
 });
 

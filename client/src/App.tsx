@@ -9,16 +9,22 @@ import Onboarding from "@/pages/onboarding";
 import Portal from "@/pages/portal";
 import AdminDashboard from "@/pages/admin";
 import LoginPage from "@/pages/login";
+import ForgotPasswordPage from "@/pages/forgot-password";
+import ResetPasswordPage from "@/pages/reset-password";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/login" component={LoginPage} />
+      <Route path="/forgot-password" component={ForgotPasswordPage} />
+      <Route path="/reset-password/:token" component={ResetPasswordPage} />
+      <Route path="/onboarding/:token" component={Onboarding} />
       <Route path="/onboarding" component={Onboarding} />
       <Route path="/portal" component={Portal} />
       <Route path="/portal/*" component={Portal} />
       <Route path="/admin" component={AdminDashboard} />
+      <Route path="/admin/*" component={AdminDashboard} />
       <Route component={NotFound} />
     </Switch>
   );

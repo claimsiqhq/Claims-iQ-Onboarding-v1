@@ -2,26 +2,83 @@ import { Router, Request, Response } from 'express';
 import { supabase } from '../lib/supabase';
 import { onboardingFormSchema } from '../../shared/validation';
 import { fromZodError } from 'zod-validation-error';
+import { z } from 'zod';
 import type { OnboardingFormData, ModuleType } from '../../shared/types';
+import { validateInvite, markInviteUsed } from '../lib/invite';
+import { sendWelcomeEmail } from '../lib/email';
 
 const router = Router();
+
+// Schema for onboarding with invite token
+const onboardingWithInviteSchema = onboardingFormSchema.extend({
+  inviteToken: z.string().min(32, 'Invalid invite token'),
+});
+
+/**
+ * GET /api/onboarding/validate-invite/:token
+ * Validate invite token before showing form
+ */
+router.get('/validate-invite/:token', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token } = req.params;
+
+    if (!token || token.length < 32) {
+      res.status(400).json({ success: false, error: 'Invalid token format' });
+      return;
+    }
+
+    const validation = await validateInvite(token);
+
+    if (!validation.valid) {
+      res.status(400).json({
+        success: false,
+        error: validation.error,
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      invite: {
+        email: validation.invite!.email,
+        companyName: validation.invite!.company_name,
+        expiresAt: validation.invite!.expires_at,
+      },
+    });
+  } catch (error) {
+    console.error('Validate invite error:', error);
+    res.status(500).json({ success: false, error: 'Failed to validate invite' });
+  }
+});
 
 /**
  * POST /api/onboarding/submit
  * Submit the complete onboarding form
+ * Requires valid invite token
  * Creates company, contact, project, and module selections
  */
 router.post('/submit', async (req: Request, res: Response): Promise<void> => {
   try {
-    // Validate input
-    const parseResult = onboardingFormSchema.safeParse(req.body);
+    // Validate input with invite token
+    const parseResult = onboardingWithInviteSchema.safeParse(req.body);
     if (!parseResult.success) {
       const error = fromZodError(parseResult.error);
       res.status(400).json({ success: false, error: error.message });
       return;
     }
 
-    const formData = parseResult.data as OnboardingFormData;
+    const { inviteToken, ...formDataRaw } = parseResult.data;
+    const formData = formDataRaw as OnboardingFormData;
+
+    // Validate invite token
+    const inviteValidation = await validateInvite(inviteToken);
+    if (!inviteValidation.valid) {
+      res.status(400).json({
+        success: false,
+        error: inviteValidation.error || 'Invalid or expired invite token',
+      });
+      return;
+    }
 
     // Start a transaction-like operation
     // Note: Supabase doesn't support true transactions via the client
@@ -191,24 +248,40 @@ router.post('/submit', async (req: Request, res: Response): Promise<void> => {
         }
       }
 
-      // 6. Log activity
+      // 6. Mark invite as used
+      await markInviteUsed(inviteToken, projectId!);
+
+      // 7. Log activity
       await supabase.from('activity_logs').insert({
         project_id: projectId,
-        user_id: null, // Anonymous submission
+        user_id: null, // Invite-based submission
         action: 'onboarding_submitted',
         details: {
           company_name: formData.company.legal_name,
           contact_email: formData.contact.email,
+          invite_email: inviteValidation.invite!.email,
           modules_selected: Object.entries(formData.modules)
             .filter(([, selected]) => selected)
             .map(([type]) => type),
         },
       });
 
+      // 8. Send welcome email
+      const appUrl = process.env.APP_URL || 'http://localhost:5000';
+      await sendWelcomeEmail(
+        formData.contact.email,
+        {
+          recipientName: `${formData.contact.first_name} ${formData.contact.last_name}`,
+          companyName: formData.company.legal_name,
+          portalUrl: `${appUrl}/portal`,
+        },
+        projectId || undefined
+      );
+
       res.json({
         success: true,
         projectId,
-        message: 'Onboarding form submitted successfully',
+        message: 'Onboarding form submitted successfully. Check your email for next steps.',
       });
     } catch (innerError) {
       // Attempt cleanup on failure
