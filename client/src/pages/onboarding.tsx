@@ -14,8 +14,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, ChevronRight, Shield, ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
+import { Check, ChevronRight, ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import logo from "@assets/ClaimsIQ_Logo_02-09[31]_1767489942619.png";
 
 // Validation Schemas
 const companySchema = z.object({
@@ -83,19 +84,19 @@ export default function Onboarding() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-muted/20 flex flex-col font-sans">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
+      <header className="bg-card border-b border-border sticky top-0 z-40">
         <div className="container max-w-screen-xl px-4 h-16 flex items-center justify-between">
           <Link href="/">
-            <div className="flex items-center gap-2 font-bold text-lg text-primary cursor-pointer">
-              <Shield className="h-5 w-5" />
+            <div className="flex items-center gap-2 font-bold text-lg text-primary cursor-pointer font-display">
+              <img src={logo} alt="Claims iQ" className="h-6 w-6 object-contain" />
               <span>Claims iQ</span>
             </div>
           </Link>
-          <div className="flex items-center gap-4 text-sm text-slate-500">
+          <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <span>Step {step} of 5</span>
-            <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
               <div 
                 className="h-full bg-primary transition-all duration-500 ease-out" 
                 style={{ width: `${(step / 5) * 100}%` }}
@@ -109,22 +110,22 @@ export default function Onboarding() {
       <main className="flex-1 container max-w-3xl px-4 py-8 mx-auto">
         <div className="mb-8">
           <div className="flex items-center justify-between relative">
-            <div className="absolute top-1/2 left-0 w-full h-0.5 bg-slate-200 -z-10" />
+            <div className="absolute top-1/2 left-0 w-full h-0.5 bg-border -z-10" />
             {STEPS.map((s) => {
               const isCompleted = step > s.id;
               const isCurrent = step === s.id;
               return (
-                <div key={s.id} className="flex flex-col items-center gap-2 bg-slate-50 px-2">
+                <div key={s.id} className="flex flex-col items-center gap-2 bg-background px-2">
                   <div 
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${
-                      isCompleted ? "bg-emerald-500 text-white" : 
-                      isCurrent ? "bg-primary text-white ring-4 ring-primary/20 scale-110" : 
-                      "bg-slate-200 text-slate-500"
+                      isCompleted ? "bg-accent text-accent-foreground" : 
+                      isCurrent ? "bg-primary text-primary-foreground ring-4 ring-primary/20 scale-110" : 
+                      "bg-muted text-muted-foreground"
                     }`}
                   >
                     {isCompleted ? <Check className="w-4 h-4" /> : s.id}
                   </div>
-                  <span className={`text-xs font-medium hidden sm:block ${isCurrent ? "text-primary" : "text-slate-500"}`}>
+                  <span className={`text-xs font-medium hidden sm:block ${isCurrent ? "text-primary" : "text-muted-foreground"}`}>
                     {s.label}
                   </span>
                 </div>
@@ -133,7 +134,7 @@ export default function Onboarding() {
           </div>
         </div>
 
-        <Card className="border-slate-200 shadow-sm overflow-hidden">
+        <Card className="border-border shadow-sm overflow-hidden">
           <CardContent className="p-6 md:p-8">
             <AnimatePresence mode="wait">
               <motion.div
@@ -168,15 +169,15 @@ function Step1Company({ defaultValues, onNext }: any) {
   return (
     <form onSubmit={form.handleSubmit(onNext)} className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900">Company Information</h2>
-        <p className="text-slate-500">Tell us about your organization.</p>
+        <h2 className="text-2xl font-bold text-foreground font-display">Company Information</h2>
+        <p className="text-muted-foreground">Tell us about your organization.</p>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>Legal Company Name <span className="text-red-500">*</span></Label>
+          <Label>Legal Company Name <span className="text-destructive">*</span></Label>
           <Input {...form.register("legalName")} placeholder="Acme Insurance Ltd." />
-          {form.formState.errors.legalName && <p className="text-xs text-red-500">{(form.formState.errors.legalName.message as string)}</p>}
+          {form.formState.errors.legalName && <p className="text-xs text-destructive">{(form.formState.errors.legalName.message as string)}</p>}
         </div>
         <div className="space-y-2">
           <Label>DBA / Trade Name</Label>
@@ -190,21 +191,21 @@ function Step1Company({ defaultValues, onNext }: any) {
       </div>
 
       <div className="space-y-2">
-        <Label>Address <span className="text-red-500">*</span></Label>
+        <Label>Address <span className="text-destructive">*</span></Label>
         <Input {...form.register("address")} placeholder="123 Corporate Blvd" />
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="space-y-2 md:col-span-2">
-          <Label>City <span className="text-red-500">*</span></Label>
+          <Label>City <span className="text-destructive">*</span></Label>
           <Input {...form.register("city")} />
         </div>
         <div className="space-y-2">
-          <Label>State <span className="text-red-500">*</span></Label>
+          <Label>State <span className="text-destructive">*</span></Label>
           <Input {...form.register("state")} />
         </div>
         <div className="space-y-2">
-          <Label>ZIP <span className="text-red-500">*</span></Label>
+          <Label>ZIP <span className="text-destructive">*</span></Label>
           <Input {...form.register("zip")} />
         </div>
       </div>
@@ -235,7 +236,7 @@ function Step1Company({ defaultValues, onNext }: any) {
       </div>
 
       <div className="space-y-3">
-        <Label>Lines of Business <span className="text-red-500">*</span></Label>
+        <Label>Lines of Business <span className="text-destructive">*</span></Label>
         <div className="grid md:grid-cols-2 gap-3">
           {[
             "Personal Auto", "Commercial Auto", "Homeowners", "Renters",
@@ -262,7 +263,7 @@ function Step1Company({ defaultValues, onNext }: any) {
             </div>
           ))}
         </div>
-        {form.formState.errors.linesOfBusiness && <p className="text-xs text-red-500">{(form.formState.errors.linesOfBusiness.message as string)}</p>}
+        {form.formState.errors.linesOfBusiness && <p className="text-xs text-destructive">{(form.formState.errors.linesOfBusiness.message as string)}</p>}
       </div>
 
       <div className="flex justify-end pt-4">
@@ -278,28 +279,28 @@ function Step2Contact({ defaultValues, onNext, onBack }: any) {
   return (
     <form onSubmit={form.handleSubmit(onNext)} className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900">Primary Contact</h2>
-        <p className="text-slate-500">Who should we contact regarding this implementation?</p>
+        <h2 className="text-2xl font-bold text-foreground font-display">Primary Contact</h2>
+        <p className="text-muted-foreground">Who should we contact regarding this implementation?</p>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>First Name <span className="text-red-500">*</span></Label>
+          <Label>First Name <span className="text-destructive">*</span></Label>
           <Input {...form.register("firstName")} />
         </div>
         <div className="space-y-2">
-          <Label>Last Name <span className="text-red-500">*</span></Label>
+          <Label>Last Name <span className="text-destructive">*</span></Label>
           <Input {...form.register("lastName")} />
         </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>Email <span className="text-red-500">*</span></Label>
+          <Label>Email <span className="text-destructive">*</span></Label>
           <Input type="email" {...form.register("email")} />
         </div>
         <div className="space-y-2">
-          <Label>Phone <span className="text-red-500">*</span></Label>
+          <Label>Phone <span className="text-destructive">*</span></Label>
           <Input type="tel" {...form.register("phone")} />
         </div>
       </div>
@@ -310,7 +311,7 @@ function Step2Contact({ defaultValues, onNext, onBack }: any) {
           <Input {...form.register("title")} />
         </div>
         <div className="space-y-2">
-          <Label>Role <span className="text-red-500">*</span></Label>
+          <Label>Role <span className="text-destructive">*</span></Label>
           <Controller
             control={form.control}
             name="role"
@@ -343,8 +344,8 @@ function Step3Modules({ defaultValues, onNext, onBack }: any) {
   return (
     <form onSubmit={form.handleSubmit(onNext)} className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900">Module Selection</h2>
-        <p className="text-slate-500">Select the Claims iQ modules you wish to implement.</p>
+        <h2 className="text-2xl font-bold text-foreground font-display">Module Selection</h2>
+        <p className="text-muted-foreground">Select the Claims iQ modules you wish to implement.</p>
       </div>
 
       <div className="space-y-4">
@@ -354,16 +355,16 @@ function Step3Modules({ defaultValues, onNext, onBack }: any) {
           render={({ field }) => (
             <>
               {[
-                { id: "core", name: "Core Intelligence", color: "border-primary", bg: "bg-blue-50", badge: "bg-blue-100 text-blue-700", desc: "AI document processing and extraction engine." },
-                { id: "comms", name: "Communications", color: "border-emerald-500", bg: "bg-emerald-50", badge: "bg-emerald-100 text-emerald-700", desc: "Omnichannel stakeholder engagement platform." },
-                { id: "fnol", name: "Smart FNOL", color: "border-purple-500", bg: "bg-purple-50", badge: "bg-purple-100 text-purple-700", desc: "Intelligent first notice of loss intake." },
+                { id: "core", name: "Core Intelligence", color: "border-primary", bg: "bg-primary/10", badge: "bg-primary/20 text-primary", desc: "AI document processing and extraction engine." },
+                { id: "comms", name: "Communications", color: "border-accent", bg: "bg-accent/10", badge: "bg-accent/20 text-accent-foreground", desc: "Omnichannel stakeholder engagement platform." },
+                { id: "fnol", name: "Smart FNOL", color: "border-secondary", bg: "bg-secondary/10", badge: "bg-secondary/20 text-secondary-foreground", desc: "Intelligent first notice of loss intake." },
               ].map((mod) => {
                 const isSelected = (field.value || []).includes(mod.id);
                 return (
                   <div 
                     key={mod.id}
                     className={`relative border-2 rounded-xl p-5 cursor-pointer transition-all ${
-                      isSelected ? `${mod.color} ${mod.bg}` : "border-slate-200 hover:border-slate-300 bg-white"
+                      isSelected ? `${mod.color} ${mod.bg}` : "border-border hover:border-ring bg-card"
                     }`}
                     onClick={() => {
                       const current = field.value || [];
@@ -379,10 +380,10 @@ function Step3Modules({ defaultValues, onNext, onBack }: any) {
                         <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold mb-2 ${mod.badge}`}>
                           {mod.id.toUpperCase()}
                         </span>
-                        <h3 className="text-lg font-bold text-slate-900">{mod.name}</h3>
-                        <p className="text-slate-600 mt-1">{mod.desc}</p>
+                        <h3 className="text-lg font-bold text-foreground">{mod.name}</h3>
+                        <p className="text-muted-foreground mt-1">{mod.desc}</p>
                       </div>
-                      <div className={`w-6 h-6 rounded border flex items-center justify-center ${isSelected ? "bg-primary border-primary text-white" : "border-slate-300 bg-white"}`}>
+                      <div className={`w-6 h-6 rounded border flex items-center justify-center ${isSelected ? "bg-primary border-primary text-primary-foreground" : "border-border bg-card"}`}>
                         {isSelected && <Check className="w-4 h-4" />}
                       </div>
                     </div>
@@ -392,7 +393,7 @@ function Step3Modules({ defaultValues, onNext, onBack }: any) {
             </>
           )}
         />
-        {form.formState.errors.selectedModules && <p className="text-xs text-red-500">{(form.formState.errors.selectedModules.message as string)}</p>}
+        {form.formState.errors.selectedModules && <p className="text-xs text-destructive">{(form.formState.errors.selectedModules.message as string)}</p>}
       </div>
 
       <div className="flex justify-between pt-4">
@@ -410,15 +411,15 @@ function Step4Requirements({ defaultValues, onNext, onBack }: any) {
   return (
     <form onSubmit={form.handleSubmit(onNext)} className="space-y-8">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900">Requirements</h2>
-        <p className="text-slate-500">Configure your specific needs for the selected modules.</p>
+        <h2 className="text-2xl font-bold text-foreground font-display">Requirements</h2>
+        <p className="text-muted-foreground">Configure your specific needs for the selected modules.</p>
       </div>
 
       {modules.includes("core") && (
-        <div className="space-y-4 border rounded-lg p-5 bg-white">
+        <div className="space-y-4 border border-border rounded-lg p-5 bg-card">
           <div className="flex items-center gap-2 mb-2">
-            <span className="w-2 h-2 rounded-full bg-blue-600"></span>
-            <h3 className="font-semibold text-lg">Core Intelligence Configuration</h3>
+            <span className="w-2 h-2 rounded-full bg-primary"></span>
+            <h3 className="font-semibold text-lg font-display">Core Intelligence Configuration</h3>
           </div>
           
           <div className="grid md:grid-cols-2 gap-4">
@@ -441,17 +442,17 @@ function Step4Requirements({ defaultValues, onNext, onBack }: any) {
       )}
 
       {modules.includes("comms") && (
-        <div className="space-y-4 border rounded-lg p-5 bg-white">
+        <div className="space-y-4 border border-border rounded-lg p-5 bg-card">
           <div className="flex items-center gap-2 mb-2">
-             <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-             <h3 className="font-semibold text-lg">Communications Configuration</h3>
+             <span className="w-2 h-2 rounded-full bg-accent"></span>
+             <h3 className="font-semibold text-lg font-display">Communications Configuration</h3>
           </div>
           <div className="space-y-4">
              <div className="space-y-2">
                <Label>Required Channels</Label>
                <div className="flex gap-4">
                   {["Email", "SMS", "WhatsApp", "In-App"].map(c => (
-                     <label key={c} className="flex items-center gap-2 text-sm border px-3 py-2 rounded hover:bg-slate-50 cursor-pointer">
+                     <label key={c} className="flex items-center gap-2 text-sm border px-3 py-2 rounded hover:bg-muted cursor-pointer">
                        <Checkbox {...form.register(`channels.${c}`)} /> {c}
                      </label>
                   ))}
@@ -479,16 +480,16 @@ function Step4Requirements({ defaultValues, onNext, onBack }: any) {
       )}
 
       {modules.includes("fnol") && (
-        <div className="space-y-4 border rounded-lg p-5 bg-white">
+        <div className="space-y-4 border border-border rounded-lg p-5 bg-card">
            <div className="flex items-center gap-2 mb-2">
-             <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-             <h3 className="font-semibold text-lg">FNOL Configuration</h3>
+             <span className="w-2 h-2 rounded-full bg-secondary"></span>
+             <h3 className="font-semibold text-lg font-display">FNOL Configuration</h3>
            </div>
            <div className="space-y-4">
              <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label>Photo Intake</Label>
-                  <p className="text-sm text-slate-500">Allow users to upload photos during FNOL</p>
+                  <p className="text-sm text-muted-foreground">Allow users to upload photos during FNOL</p>
                 </div>
                 <Switch {...form.register("fnol.photos")} defaultChecked />
              </div>
@@ -496,7 +497,7 @@ function Step4Requirements({ defaultValues, onNext, onBack }: any) {
              <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label>Video Intake</Label>
-                  <p className="text-sm text-slate-500">Allow users to record/upload video statements</p>
+                  <p className="text-sm text-muted-foreground">Allow users to record/upload video statements</p>
                 </div>
                 <Switch {...form.register("fnol.video")} />
              </div>
@@ -527,34 +528,34 @@ function Step5Review({ data, onSubmit, onBack }: any) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900">Review & Submit</h2>
-        <p className="text-slate-500">Please review your information before generating the SOW.</p>
+        <h2 className="text-2xl font-bold text-foreground font-display">Review & Submit</h2>
+        <p className="text-muted-foreground">Please review your information before generating the SOW.</p>
       </div>
 
       <div className="grid gap-4">
-        <Card className="bg-slate-50 border-slate-200">
+        <Card className="bg-muted/30 border-border">
           <CardContent className="p-4 space-y-2">
-            <h3 className="font-semibold text-sm uppercase tracking-wider text-slate-500">Company</h3>
+            <h3 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground font-mono">Company</h3>
             <p className="font-medium text-lg">{data.legalName}</p>
-            <p className="text-slate-600">{data.address}, {data.city}, {data.state} {data.zip}</p>
+            <p className="text-muted-foreground">{data.address}, {data.city}, {data.state} {data.zip}</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-50 border-slate-200">
+        <Card className="bg-muted/30 border-border">
           <CardContent className="p-4 space-y-2">
-             <h3 className="font-semibold text-sm uppercase tracking-wider text-slate-500">Primary Contact</h3>
+             <h3 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground font-mono">Primary Contact</h3>
              <p className="font-medium text-lg">{data.firstName} {data.lastName}</p>
-             <p className="text-slate-600">{data.email} • {data.phone}</p>
-             <p className="text-sm text-slate-500 bg-slate-200 inline-block px-2 py-0.5 rounded">{data.role}</p>
+             <p className="text-muted-foreground">{data.email} • {data.phone}</p>
+             <p className="text-sm text-muted-foreground bg-muted inline-block px-2 py-0.5 rounded">{data.role}</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-slate-50 border-slate-200">
+        <Card className="bg-muted/30 border-border">
            <CardContent className="p-4 space-y-2">
-             <h3 className="font-semibold text-sm uppercase tracking-wider text-slate-500">Selected Modules</h3>
+             <h3 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground font-mono">Selected Modules</h3>
              <div className="flex flex-wrap gap-2">
                {(data.selectedModules || []).map((m: string) => (
-                 <span key={m} className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 font-medium text-sm border border-blue-200 capitalize">
+                 <span key={m} className="px-3 py-1 rounded-full bg-primary/20 text-primary font-medium text-sm border border-primary/20 capitalize">
                    {m}
                  </span>
                ))}
@@ -563,9 +564,9 @@ function Step5Review({ data, onSubmit, onBack }: any) {
         </Card>
       </div>
 
-      <div className="flex items-start space-x-2 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+      <div className="flex items-start space-x-2 p-4 bg-accent/10 border border-accent/20 rounded-lg">
         <Checkbox id="confirm" checked={confirmed} onCheckedChange={(c) => setConfirmed(!!c)} className="mt-1" />
-        <label htmlFor="confirm" className="text-sm text-yellow-900 cursor-pointer">
+        <label htmlFor="confirm" className="text-sm text-foreground cursor-pointer">
           I confirm that the information provided is accurate and I am authorized to initiate this onboarding request on behalf of <strong>{data.legalName}</strong>.
         </label>
       </div>
