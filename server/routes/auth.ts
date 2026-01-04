@@ -329,71 +329,99 @@ router.post('/login-password', async (req: Request, res: Response): Promise<void
 
     const { email, password } = parseResult.data;
 
-    // Verify password
-    const verification = await verifyUserPassword(email, password);
-    if (!verification.success) {
-      res.status(401).json({ error: verification.error || 'Invalid credentials' });
-      return;
-    }
-
-    // Create a session via Supabase magic link (for session management)
-    // Since portal users use Supabase auth, we need to create a proper session
-    // This is a workaround - ideally we'd use Supabase's password auth directly
-
-    // For now, we'll use a custom session approach
-    // Get the portal user details
-    const { data: portalUser } = await supabase
-      .from('portal_users')
-      .select('id, auth_user_id, company_id, contact:contacts!inner(first_name, last_name, email)')
-      .eq('id', verification.portalUserId)
-      .single();
-
-    if (!portalUser || !portalUser.auth_user_id) {
-      res.status(401).json({ error: 'User account not properly configured' });
-      return;
-    }
-
-    // Sign in with Supabase using the auth_user_id
-    // Note: This requires admin access to create sessions for users
-    const { data: sessionData, error: sessionError } = await supabase.auth.admin.getUserById(
-      portalUser.auth_user_id
-    );
-
-    if (sessionError || !sessionData.user) {
-      // Fallback: Ask user to use magic link if session creation fails
-      res.status(200).json({
-        success: true,
-        message: 'Password verified. Please use magic link for full session.',
-        requireMagicLink: true,
-        email,
-      });
-      return;
-    }
-
-    // Generate a session for the user
-    const { data: session, error: genError } = await supabase.auth.admin.generateLink({
-      type: 'magiclink',
-      email: email,
+    // Use Supabase's native password authentication
+    // This will work if the password was synced to Supabase Auth
+    const { data, error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     });
 
-    if (genError) {
-      res.status(200).json({
-        success: true,
-        message: 'Password verified successfully',
-        requireMagicLink: true,
-        email,
-      });
+    if (signInError || !data.session) {
+      // Fallback: Try local password verification for backwards compatibility
+      const verification = await verifyUserPassword(email, password);
+      if (!verification.success) {
+        res.status(401).json({ error: 'Invalid email or password' });
+        return;
+      }
+
+      // Password verified locally but not in Supabase - need to sync
+      // This can happen for users who set passwords before the sync was implemented
+      if (verification.userId) {
+        // Sync the password to Supabase Auth
+        const { error: syncError } = await supabase.auth.admin.updateUserById(
+          verification.userId,
+          { password }
+        );
+
+        if (!syncError) {
+          // Try signing in again after sync
+          const { data: retryData, error: retryError } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
+
+          if (!retryError && retryData.session) {
+            // Set cookies and return success
+            res.cookie('sb-access-token', retryData.session.access_token, {
+              httpOnly: true,
+              secure: process.env.NODE_ENV === 'production',
+              sameSite: 'lax',
+              maxAge: retryData.session.expires_in * 1000,
+              path: '/',
+            });
+
+            res.cookie('sb-refresh-token', retryData.session.refresh_token, {
+              httpOnly: true,
+              secure: process.env.NODE_ENV === 'production',
+              sameSite: 'lax',
+              maxAge: 60 * 60 * 24 * 7 * 1000, // 7 days
+              path: '/',
+            });
+
+            res.json({
+              success: true,
+              message: 'Login successful',
+              user: {
+                id: retryData.user?.id,
+                email: retryData.user?.email,
+              },
+              expiresAt: retryData.session.expires_at,
+            });
+            return;
+          }
+        }
+      }
+
+      // If we get here, we couldn't authenticate
+      res.status(401).json({ error: 'Invalid email or password' });
       return;
     }
+
+    // Supabase authentication successful - set session cookies
+    res.cookie('sb-access-token', data.session.access_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: data.session.expires_in * 1000,
+      path: '/',
+    });
+
+    res.cookie('sb-refresh-token', data.session.refresh_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7 * 1000, // 7 days
+      path: '/',
+    });
 
     res.json({
       success: true,
       message: 'Login successful',
       user: {
-        id: portalUser.auth_user_id,
-        email,
-        portalUserId: portalUser.id,
+        id: data.user?.id,
+        email: data.user?.email,
       },
+      expiresAt: data.session.expires_at,
     });
   } catch (error) {
     console.error('Password login error:', error);

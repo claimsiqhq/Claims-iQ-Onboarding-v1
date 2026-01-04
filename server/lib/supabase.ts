@@ -5,15 +5,24 @@ import type { Database } from '../../shared/types';
 // Uses the secret key for admin operations (token verification, user lookups)
 // See: https://supabase.com/docs/guides/api/api-keys
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
-const supabasePublishableKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+// Service role key (for admin operations) - JWT format starting with "eyJ..."
+// Check multiple possible env var names
+const supabaseSecretKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
+
+// Anon/publishable key (for client operations) - JWT format starting with "eyJ..."
+// Check multiple possible env var names
+const supabasePublishableKey =
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 if (!supabaseUrl) {
   console.error('Missing Supabase URL. Please set SUPABASE_URL environment variable');
 }
 
 if (!supabaseSecretKey && !supabasePublishableKey) {
-  console.error('Missing Supabase key. Please set SUPABASE_SECRET_KEY or VITE_SUPABASE_PUBLISHABLE_KEY');
+  console.error('Missing Supabase key. Please set SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY');
 }
 
 // Create the base Supabase client for server-side admin operations

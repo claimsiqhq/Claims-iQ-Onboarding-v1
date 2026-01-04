@@ -250,7 +250,30 @@ export async function resetPasswordWithToken(
       return { success: false, error: passwordValidation.errors[0] };
     }
 
-    // Hash the new password
+    // Get the portal user's auth_user_id
+    const { data: portalUser, error: fetchError } = await supabase
+      .from('portal_users')
+      .select('auth_user_id')
+      .eq('id', validation.userId)
+      .single();
+
+    if (fetchError || !portalUser?.auth_user_id) {
+      console.error('Failed to get portal user:', fetchError);
+      return { success: false, error: 'User not found' };
+    }
+
+    // Update password in Supabase Auth (enables signInWithPassword)
+    const { error: authError } = await supabase.auth.admin.updateUserById(
+      portalUser.auth_user_id,
+      { password: newPassword }
+    );
+
+    if (authError) {
+      console.error('Failed to update Supabase Auth password:', authError);
+      return { success: false, error: 'Failed to update password' };
+    }
+
+    // Hash the new password for local storage
     const passwordHash = await hashPassword(newPassword);
 
     // Update the portal user's password
@@ -295,7 +318,30 @@ export async function setUserPassword(
       return { success: false, error: validation.errors[0] };
     }
 
-    // Hash the password
+    // Get the portal user's auth_user_id
+    const { data: portalUser, error: fetchError } = await supabase
+      .from('portal_users')
+      .select('auth_user_id')
+      .eq('id', userId)
+      .single();
+
+    if (fetchError || !portalUser?.auth_user_id) {
+      console.error('Failed to get portal user:', fetchError);
+      return { success: false, error: 'User not found' };
+    }
+
+    // Update password in Supabase Auth (enables signInWithPassword)
+    const { error: authError } = await supabase.auth.admin.updateUserById(
+      portalUser.auth_user_id,
+      { password }
+    );
+
+    if (authError) {
+      console.error('Failed to update Supabase Auth password:', authError);
+      return { success: false, error: 'Failed to set password' };
+    }
+
+    // Hash the password for local storage (backup verification)
     const passwordHash = await hashPassword(password);
 
     // Update the portal user
@@ -309,7 +355,7 @@ export async function setUserPassword(
       .eq('id', userId);
 
     if (error) {
-      console.error('Failed to set password:', error);
+      console.error('Failed to set password in portal_users:', error);
       return { success: false, error: 'Failed to set password' };
     }
 
