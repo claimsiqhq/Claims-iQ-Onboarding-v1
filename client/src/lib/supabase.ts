@@ -1,13 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@shared/types';
 
-// Get Supabase URL and key from Vite environment variables
+// Get Supabase URL and publishable key from Vite environment variables
+// See: https://supabase.com/docs/guides/api/api-keys
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!supabaseUrl || !supabasePublishableKey) {
   console.warn(
-    'Missing Supabase environment variables. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY'
+    'Missing Supabase environment variables. Please set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY'
   );
 }
 
@@ -16,7 +17,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // built-in session management. This is because we want the server to control auth.
 export const supabase = createClient<Database>(
   supabaseUrl || '',
-  supabaseAnonKey || '',
+  supabasePublishableKey || '',
   {
     auth: {
       // Don't auto-refresh since server handles tokens
