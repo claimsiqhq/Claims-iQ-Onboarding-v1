@@ -1,0 +1,69 @@
+## Color Palette
+
+### Primary Colors (Monochromatic Purple Family)
+
+- **#7763B7** - Core Brand Purple (logo, headlines, CTAs)
+- **#9D8BBF** - Secondary Purple (section headers, hover states)
+- **#CDBFF7** - Light Purple (backgrounds, accents)
+
+### Secondary Colors (Accent & Contrast)
+
+- **#C6A54E** - Gold (authority, premium, trust markers, CTA hover)
+- **#EAD4A2** - Light Gold (subtle highlights, charts, secondary buttons)
+
+### Neutral Colors
+
+- **#342A4F** - Deep Purple (backgrounds, emphasis, data highlight)
+- **#F0E6FA** - Light Purple Grey (backgrounds, dividers)
+- **#E3DFE8** - Grey Lavender (forms, dividers)
+- **#F0EDF4** - Off White (subtle backgrounds)
+- **#FFFFFF** - White (clean space, high contrast for text)
+
+**Usage Notes:**
+
+- Use primarily monochromatic purple palette with varying saturation for depth
+- Gold accent emphasizes key elements and guides attention
+- Neutrals ensure accessibility and legibility
+
+---
+
+## Typography
+
+### Primary Typeface: Work Sans
+
+- **Use:** Headlines, key brand messaging, callouts
+- **Weights:** ExtraBold (H1), SemiBold (H2), Regular (body emphasis)
+- **Why:** Modern, geometric sans-serif that feels clean, trustworthy, and forward-thinking
+- **Link:** [Adobe Fonts - Work Sans](https://fonts.adobe.com/fonts/work-sans)
+
+### Secondary Typeface: Source Sans Pro
+
+- **Use:** Body copy, captions, legal copy, UI text
+- **Weights:** Regular (paragraph), Semibold (subhead emphasis)
+- **Why:** Humanist sans-serif, highly readable for dense content and long-form copy
+- **Link:** [Adobe Fonts - Source Sans](https://fonts.adobe.com/fonts/source-sans)
+
+### Accent Typeface: Space Mono
+
+- **Use:** Data presentation, code snippets, technical callouts
+- **Weights:** Regular (inline references), Bold (highlighted data)
+- **Why:** Monospaced but contemporary — creates precision and technical authority
+- **Link:** [Adobe Fonts - Space Mono](https://fonts.adobe.com/fonts/space-mono)
+
+### Font Hierarchy Example
+
+- **H1 (Hero/Headline):** Work Sans ExtraBold 48pt
+- **H2 (Subheading):** Work Sans SemiBold 28pt
+- **Body Copy:** Source Sans Pro Regular 16pt
+- **Captions/Legal:** Source Sans Pro Regular 12pt
+- **Data/Technical:** Space Mono Bold 14pt
+
+---
+
+## Iconography
+
+**System:** Iconoir
+
+- **Style:** Minimalist, thin line work
+- **Why:** Elegant yet highly functional, consistent and simple, adaptable across applications
+- **Link:** [Iconoir Icon Library](https://iconoir.com/)
