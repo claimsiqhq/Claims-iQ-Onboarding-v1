@@ -29,7 +29,7 @@ type PasswordLoginFormData = z.infer<typeof passwordLoginSchema>;
 export default function LoginPage() {
   const [, setLocation] = useLocation();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
-  const [authMethod, setAuthMethod] = useState<'magic_link' | 'password'>('magic_link');
+  const [authMethod, setAuthMethod] = useState<'magic_link' | 'password'>('password');
   const [step, setStep] = useState<'email' | 'otp'>('email');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
@@ -158,8 +158,8 @@ export default function LoginPage() {
             {step === 'email' ? (
               <Tabs value={authMethod} onValueChange={(v) => setAuthMethod(v as 'magic_link' | 'password')}>
                 <TabsList className="grid w-full grid-cols-2 mb-4">
-                  <TabsTrigger value="magic_link">Magic Link</TabsTrigger>
                   <TabsTrigger value="password">Password</TabsTrigger>
+                  <TabsTrigger value="magic_link">Magic Link</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="magic_link">
