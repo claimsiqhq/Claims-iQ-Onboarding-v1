@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, Switch as RouteSwitch, Route, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -1516,12 +1516,19 @@ export function SettingsPage() {
 
 // --- Main Wrapper ---
 export default function Portal() {
-  const { isLoading, isAuthenticated } = useAuth();
+  const { isLoading, isFetching, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
 
-  // Check auth at the top level BEFORE rendering any portal UI
-  // This prevents the flash of dashboard content before redirect
-  if (isLoading) {
+  // Redirect to login if not authenticated (use useEffect to avoid React render warnings)
+  // Only redirect when not loading AND not fetching (to prevent race condition during auth refetch)
+  useEffect(() => {
+    if (!isLoading && !isFetching && !isAuthenticated) {
+      setLocation('/login');
+    }
+  }, [isLoading, isFetching, isAuthenticated, setLocation]);
+
+  // Show loading while checking auth or refetching
+  if (isLoading || isFetching) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -1529,8 +1536,8 @@ export default function Portal() {
     );
   }
 
+  // Don't render portal if not authenticated
   if (!isAuthenticated) {
-    setLocation('/login');
     return null;
   }
 

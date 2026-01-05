@@ -52,6 +52,7 @@ export function useAuth() {
   return {
     user: query.data,
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
     isAuthenticated: !!query.data,
     isStaff: query.data?.userType === 'claims_iq_staff',
     isPortalUser: query.data?.userType === 'portal_user',

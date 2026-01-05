@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Link, useLocation } from 'wouter';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLogin, useVerifyOtp, useAuth } from '../hooks/useAuth';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -28,6 +28,7 @@ type PasswordLoginFormData = z.infer<typeof passwordLoginSchema>;
 
 export default function LoginPage() {
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [authMethod, setAuthMethod] = useState<'magic_link' | 'password'>('password');
   const [step, setStep] = useState<'email' | 'otp'>('email');
@@ -62,7 +63,7 @@ export default function LoginPage() {
       }
       return result;
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       if (result.requireMagicLink) {
         // Password verified but need magic link for full session
         setEmail(result.email);
@@ -70,6 +71,8 @@ export default function LoginPage() {
         loginMutation.mutate({ email: result.email });
         setStep('otp');
       } else {
+        // Refetch auth query and wait for it to complete so portal sees updated state
+        await queryClient.refetchQueries({ queryKey: ['auth', 'me'] });
         setLocation('/portal');
       }
     },
@@ -78,9 +81,15 @@ export default function LoginPage() {
     },
   });
 
-  // Redirect if already authenticated
+  // Redirect if already authenticated (use useEffect to avoid React render warnings)
+  useEffect(() => {
+    if (!authLoading && isAuthenticated) {
+      setLocation('/portal');
+    }
+  }, [authLoading, isAuthenticated, setLocation]);
+
+  // Don't render login form if authenticated
   if (!authLoading && isAuthenticated) {
-    setLocation('/portal');
     return null;
   }
 
