@@ -61,11 +61,11 @@ export async function requireAuth(
       return;
     }
 
-    // Create authenticated client for this request
+    // Create authenticated client for this request (for RLS-aware queries)
     const supabaseClient = createAuthenticatedClient(accessToken);
 
-    // Get tenant context
-    const tenantContext = await getTenantContext(supabaseClient, user.id);
+    // Get tenant context using service role client (bypasses RLS for user lookup)
+    const tenantContext = await getTenantContext(supabase, user.id);
     if (!tenantContext) {
       res.status(403).json({ error: 'User not found in system. Please contact support.' });
       return;
@@ -103,7 +103,7 @@ export async function optionalAuth(
       const user = await verifyToken(accessToken);
       if (user) {
         const supabaseClient = createAuthenticatedClient(accessToken);
-        const tenantContext = await getTenantContext(supabaseClient, user.id);
+        const tenantContext = await getTenantContext(supabase, user.id);
 
         if (tenantContext) {
           req.user = {
