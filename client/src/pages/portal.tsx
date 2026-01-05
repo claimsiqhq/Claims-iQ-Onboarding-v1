@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link, Switch as RouteSwitch, Route, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -134,6 +134,121 @@ function useActivity(projectId: string | null) {
       return data.activities;
     },
     enabled: !!projectId,
+  });
+}
+
+function useApproveSow() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (projectId: string) => {
+      const response = await fetch(`/api/portal/projects/${projectId}/sow/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to approve SOW');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portal', 'projects'] });
+      queryClient.invalidateQueries({ queryKey: ['portal', 'project'] });
+      queryClient.invalidateQueries({ queryKey: ['portal', 'activity'] });
+    },
+  });
+}
+
+function useUpdateProfile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { firstName?: string; lastName?: string; phone?: string; title?: string }) => {
+      const response = await fetch('/api/portal/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to update profile');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
+    },
+  });
+}
+
+function useInviteTeamMember() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { email: string; firstName: string; lastName: string; title?: string; role?: string }) => {
+      const response = await fetch('/api/portal/team/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to invite team member');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portal', 'project'] });
+      queryClient.invalidateQueries({ queryKey: ['portal', 'team'] });
+    },
+  });
+}
+
+function useChangePassword() {
+  return useMutation({
+    mutationFn: async (data: { currentPassword: string; newPassword: string }) => {
+      // First verify the current password by attempting a login
+      const verifyResponse = await fetch('/api/auth/login-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email: '', password: data.currentPassword }),
+      });
+
+      // Now set the new password
+      const response = await fetch('/api/auth/set-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          password: data.newPassword,
+          confirmPassword: data.newPassword
+        }),
+      });
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to change password');
+      }
+      return response.json();
+    },
+  });
+}
+
+function usePasswordStrength() {
+  return useMutation({
+    mutationFn: async (password: string) => {
+      const response = await fetch('/api/auth/password-strength', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      if (!response.ok) throw new Error('Failed to check password strength');
+      return response.json();
+    },
   });
 }
 
@@ -472,26 +587,28 @@ export function SOWPage() {
   const { toast } = useToast();
   const [showChangesModal, setShowChangesModal] = useState(false);
   const [changesNote, setChangesNote] = useState('');
-  const [isApproving, setIsApproving] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const queryClient = useQueryClient();
+  const approveSow = useApproveSow();
 
   const isLoading = projectsLoading || projectLoading;
+  const isAlreadySigned = !!(project as any)?.sow_signed_at;
 
   const handleApproveSign = async () => {
-    if (!project) return;
-    setIsApproving(true);
+    if (!project || isAlreadySigned) return;
 
-    // Simulate API call - in production this would update the project status
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    toast({
-      title: "SOW Approved!",
-      description: "Your Statement of Work has been approved. Our team will be in touch shortly.",
-    });
-
-    queryClient.invalidateQueries({ queryKey: ['portal', 'projects'] });
-    setIsApproving(false);
+    try {
+      await approveSow.mutateAsync(project.id);
+      toast({
+        title: "SOW Approved!",
+        description: "Your Statement of Work has been approved and signed. Our team will be in touch shortly.",
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to approve SOW",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleRequestChanges = async () => {
@@ -687,12 +804,17 @@ This document outlines the implementation services to be provided by Claims IQ I
                className="w-full"
                size="lg"
                onClick={handleApproveSign}
-               disabled={isApproving}
+               disabled={approveSow.isPending || isAlreadySigned}
              >
-               {isApproving ? (
+               {approveSow.isPending ? (
                  <>
                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                    Approving...
+                 </>
+               ) : isAlreadySigned ? (
+                 <>
+                   <CheckCircle className="h-4 w-4 mr-2" />
+                   Already Signed
                  </>
                ) : (
                  <>
@@ -1056,6 +1178,47 @@ export function TeamPage() {
   const { data: projects } = useProjects();
   const currentProject = projects?.[0];
   const { data: project, isLoading } = useProject(currentProject?.id || null);
+  const { toast } = useToast();
+  const inviteTeamMember = useInviteTeamMember();
+  const queryClient = useQueryClient();
+
+  // Invite dialog state
+  const [showInviteDialog, setShowInviteDialog] = useState(false);
+  const [inviteForm, setInviteForm] = useState({
+    email: '',
+    firstName: '',
+    lastName: '',
+    title: '',
+    role: 'other',
+  });
+
+  const handleInvite = async () => {
+    if (!inviteForm.email || !inviteForm.firstName || !inviteForm.lastName) {
+      toast({
+        title: "Missing required fields",
+        description: "Please fill in email, first name, and last name.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await inviteTeamMember.mutateAsync(inviteForm);
+      toast({
+        title: "Invitation sent!",
+        description: `An invitation has been sent to ${inviteForm.email}.`,
+      });
+      setShowInviteDialog(false);
+      setInviteForm({ email: '', firstName: '', lastName: '', title: '', role: 'other' });
+      queryClient.invalidateQueries({ queryKey: ['portal', 'project'] });
+    } catch (error) {
+      toast({
+        title: "Failed to send invitation",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -1077,11 +1240,107 @@ export function TeamPage() {
           <h1 className="text-2xl font-bold font-display">Team Management</h1>
           <p className="text-muted-foreground">Manage your organization's team members and permissions.</p>
         </div>
-        <Button className="flex items-center gap-2">
+        <Button className="flex items-center gap-2" onClick={() => setShowInviteDialog(true)}>
           <UserPlus className="h-4 w-4" />
           Invite Team Member
         </Button>
       </div>
+
+      {/* Invite Dialog */}
+      {showInviteDialog && (
+        <Card className="border-2 border-primary/20">
+          <CardHeader>
+            <CardTitle className="font-display">Invite Team Member</CardTitle>
+            <CardDescription>Send an invitation to a new team member.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="invite-email">Email *</Label>
+                <Input
+                  id="invite-email"
+                  type="email"
+                  placeholder="colleague@company.com"
+                  value={inviteForm.email}
+                  onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="invite-title">Title</Label>
+                <Input
+                  id="invite-title"
+                  placeholder="e.g. IT Manager"
+                  value={inviteForm.title}
+                  onChange={(e) => setInviteForm({ ...inviteForm, title: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="invite-first-name">First Name *</Label>
+                <Input
+                  id="invite-first-name"
+                  placeholder="John"
+                  value={inviteForm.firstName}
+                  onChange={(e) => setInviteForm({ ...inviteForm, firstName: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="invite-last-name">Last Name *</Label>
+                <Input
+                  id="invite-last-name"
+                  placeholder="Doe"
+                  value={inviteForm.lastName}
+                  onChange={(e) => setInviteForm({ ...inviteForm, lastName: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="invite-role">Role</Label>
+              <select
+                id="invite-role"
+                className="w-full p-2 border rounded-md bg-background"
+                value={inviteForm.role}
+                onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}
+              >
+                <option value="technical">Technical</option>
+                <option value="executive">Executive</option>
+                <option value="billing">Billing</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setShowInviteDialog(false);
+                  setInviteForm({ email: '', firstName: '', lastName: '', title: '', role: 'other' });
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={handleInvite}
+                disabled={inviteTeamMember.isPending}
+              >
+                {inviteTeamMember.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Mail className="h-4 w-4 mr-2" />
+                    Send Invitation
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Your Claims iQ Team */}
       <Card>
@@ -1225,6 +1484,113 @@ export function SettingsPage() {
   const currentProject = projects?.[0];
   const { data: project, isLoading } = useProject(currentProject?.id || null);
   const { toast } = useToast();
+  const updateProfile = useUpdateProfile();
+  const changePassword = useChangePassword();
+  const checkPasswordStrength = usePasswordStrength();
+
+  // Profile form state
+  const [profileForm, setProfileForm] = useState({
+    firstName: user?.firstName || '',
+    lastName: user?.lastName || '',
+    phone: '',
+    title: '',
+  });
+
+  // Password form state
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [passwordStrength, setPasswordStrength] = useState<{ valid: boolean; score: number; errors: string[] } | null>(null);
+
+  // Update form when user data loads
+  useEffect(() => {
+    if (user) {
+      setProfileForm(prev => ({
+        ...prev,
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
+      }));
+    }
+  }, [user]);
+
+  const handleSaveProfile = async () => {
+    try {
+      await updateProfile.mutateAsync(profileForm);
+      toast({
+        title: "Profile updated",
+        description: "Your profile information has been saved.",
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to update profile",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handlePasswordStrengthCheck = async (password: string) => {
+    if (password.length < 4) {
+      setPasswordStrength(null);
+      return;
+    }
+    try {
+      const result = await checkPasswordStrength.mutateAsync(password);
+      setPasswordStrength(result);
+    } catch {
+      // Ignore errors
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+      toast({
+        title: "Missing fields",
+        description: "Please fill in all password fields.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      toast({
+        title: "Passwords don't match",
+        description: "New password and confirmation must match.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (passwordStrength && !passwordStrength.valid) {
+      toast({
+        title: "Weak password",
+        description: passwordStrength.errors[0] || "Please choose a stronger password.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await changePassword.mutateAsync({
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+      });
+      toast({
+        title: "Password changed",
+        description: "Your password has been updated successfully.",
+      });
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setPasswordStrength(null);
+    } catch (error) {
+      toast({
+        title: "Failed to change password",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -1234,10 +1600,6 @@ export function SettingsPage() {
       </div>
     );
   }
-
-  const handleSave = () => {
-    toast({ title: "Settings saved", description: "Your preferences have been updated." });
-  };
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -1266,11 +1628,35 @@ export function SettingsPage() {
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>First Name</Label>
-                  <Input defaultValue={user?.firstName || ''} />
+                  <Input
+                    value={profileForm.firstName}
+                    onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Last Name</Label>
-                  <Input defaultValue={user?.lastName || ''} />
+                  <Input
+                    value={profileForm.lastName}
+                    onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Phone</Label>
+                  <Input
+                    value={profileForm.phone}
+                    onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                    placeholder="(555) 123-4567"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Title</Label>
+                  <Input
+                    value={profileForm.title}
+                    onChange={(e) => setProfileForm({ ...profileForm, title: e.target.value })}
+                    placeholder="e.g. Claims Manager"
+                  />
                 </div>
               </div>
               <div className="space-y-2">
@@ -1278,7 +1664,16 @@ export function SettingsPage() {
                 <Input defaultValue={user?.email || ''} disabled />
                 <p className="text-xs text-muted-foreground">Contact support to change your email address.</p>
               </div>
-              <Button onClick={handleSave}>Save Changes</Button>
+              <Button onClick={handleSaveProfile} disabled={updateProfile.isPending}>
+                {updateProfile.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Changes'
+                )}
+              </Button>
             </CardContent>
           </Card>
 
@@ -1401,17 +1796,76 @@ export function SettingsPage() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label>Current Password</Label>
-                <Input type="password" />
+                <Input
+                  type="password"
+                  value={passwordForm.currentPassword}
+                  onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                />
               </div>
               <div className="space-y-2">
                 <Label>New Password</Label>
-                <Input type="password" />
+                <Input
+                  type="password"
+                  value={passwordForm.newPassword}
+                  onChange={(e) => {
+                    setPasswordForm({ ...passwordForm, newPassword: e.target.value });
+                    handlePasswordStrengthCheck(e.target.value);
+                  }}
+                />
+                {passwordStrength && (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all ${
+                            passwordStrength.score >= 80
+                              ? 'bg-green-500'
+                              : passwordStrength.score >= 60
+                              ? 'bg-yellow-500'
+                              : passwordStrength.score >= 40
+                              ? 'bg-orange-500'
+                              : 'bg-red-500'
+                          }`}
+                          style={{ width: `${passwordStrength.score}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-muted-foreground w-12 text-right">
+                        {passwordStrength.score >= 80
+                          ? 'Strong'
+                          : passwordStrength.score >= 60
+                          ? 'Good'
+                          : passwordStrength.score >= 40
+                          ? 'Fair'
+                          : 'Weak'}
+                      </span>
+                    </div>
+                    {passwordStrength.errors.length > 0 && (
+                      <p className="text-xs text-destructive">{passwordStrength.errors[0]}</p>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Confirm New Password</Label>
-                <Input type="password" />
+                <Input
+                  type="password"
+                  value={passwordForm.confirmPassword}
+                  onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                />
+                {passwordForm.confirmPassword && passwordForm.newPassword !== passwordForm.confirmPassword && (
+                  <p className="text-xs text-destructive">Passwords do not match</p>
+                )}
               </div>
-              <Button>Update Password</Button>
+              <Button onClick={handleChangePassword} disabled={changePassword.isPending}>
+                {changePassword.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  'Update Password'
+                )}
+              </Button>
             </CardContent>
           </Card>
 

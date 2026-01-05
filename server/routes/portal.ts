@@ -320,6 +320,277 @@ router.get('/projects/:projectId/documents', async (req: Request, res: Response)
 });
 
 /**
+ * POST /api/portal/projects/:projectId/sow/approve
+ * Approve and sign the Statement of Work
+ */
+router.post('/projects/:projectId/sow/approve', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const client = req.supabaseClient!;
+    const tenant = req.tenant!;
+    const { projectId } = req.params;
+
+    // Validate access
+    try {
+      await requireProjectAccess(client, tenant, projectId);
+    } catch (e) {
+      if (e instanceof TenantAccessError) {
+        res.status(403).json({ success: false, error: e.message });
+        return;
+      }
+      throw e;
+    }
+
+    // Check if already signed
+    const { data: existingProject, error: fetchError } = await client
+      .from('onboarding_projects')
+      .select('id, sow_signed_at, status')
+      .eq('id', projectId)
+      .single();
+
+    if (fetchError || !existingProject) {
+      res.status(404).json({ success: false, error: 'Project not found' });
+      return;
+    }
+
+    if (existingProject.sow_signed_at) {
+      res.status(400).json({ success: false, error: 'SOW has already been signed' });
+      return;
+    }
+
+    // Update project with SOW approval
+    const { data: updatedProject, error: updateError } = await client
+      .from('onboarding_projects')
+      .update({
+        sow_signed_at: new Date().toISOString(),
+        stage: 'technical',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', projectId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('SOW approval error:', updateError);
+      res.status(500).json({ success: false, error: 'Failed to approve SOW' });
+      return;
+    }
+
+    // Log activity
+    await client.from('activity_logs').insert({
+      project_id: projectId,
+      user_id: tenant.userId,
+      action: 'sow_approved',
+      details: {
+        signed_by_email: tenant.email,
+        signed_at: new Date().toISOString(),
+      },
+    });
+
+    res.json({ success: true, project: updatedProject });
+  } catch (error) {
+    console.error('SOW approval error:', error);
+    res.status(500).json({ success: false, error: 'Failed to approve SOW' });
+  }
+});
+
+/**
+ * PATCH /api/portal/profile
+ * Update the current user's profile information
+ */
+router.patch('/profile', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const client = req.supabaseClient!;
+    const tenant = req.tenant!;
+    const { firstName, lastName, phone, title } = req.body;
+
+    // Get the portal user's contact_id
+    const { data: portalUser, error: portalUserError } = await client
+      .from('portal_users')
+      .select('contact_id')
+      .eq('id', tenant.userId)
+      .single();
+
+    if (portalUserError || !portalUser || !portalUser.contact_id) {
+      res.status(404).json({ success: false, error: 'User profile not found' });
+      return;
+    }
+
+    // Update the contact record
+    const updateData: Record<string, string | null> = {};
+    if (firstName !== undefined) updateData.first_name = firstName;
+    if (lastName !== undefined) updateData.last_name = lastName;
+    if (phone !== undefined) updateData.phone = phone || null;
+    if (title !== undefined) updateData.title = title || null;
+    updateData.updated_at = new Date().toISOString();
+
+    const { data: updatedContact, error: updateError } = await client
+      .from('contacts')
+      .update(updateData)
+      .eq('id', portalUser.contact_id)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Profile update error:', updateError);
+      res.status(500).json({ success: false, error: 'Failed to update profile' });
+      return;
+    }
+
+    res.json({ success: true, contact: updatedContact });
+  } catch (error) {
+    console.error('Profile update error:', error);
+    res.status(500).json({ success: false, error: 'Failed to update profile' });
+  }
+});
+
+/**
+ * POST /api/portal/team/invite
+ * Invite a new team member to the organization
+ */
+router.post('/team/invite', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const client = req.supabaseClient!;
+    const tenant = req.tenant!;
+    const { email, firstName, lastName, title, role } = req.body;
+
+    // Validate required fields
+    if (!email || !firstName || !lastName) {
+      res.status(400).json({ success: false, error: 'Email, first name, and last name are required' });
+      return;
+    }
+
+    // Portal users must have a company
+    if (!tenant.companyId) {
+      res.status(403).json({ success: false, error: 'Company not found for user' });
+      return;
+    }
+
+    // Check if contact already exists with this email for this company
+    const { data: existingContact } = await client
+      .from('contacts')
+      .select('id')
+      .eq('company_id', tenant.companyId)
+      .eq('email', email.toLowerCase())
+      .single();
+
+    if (existingContact) {
+      res.status(400).json({ success: false, error: 'A contact with this email already exists' });
+      return;
+    }
+
+    // Create new contact record
+    const { data: contact, error: contactError } = await client
+      .from('contacts')
+      .insert({
+        company_id: tenant.companyId,
+        first_name: firstName,
+        last_name: lastName,
+        email: email.toLowerCase(),
+        title: title || null,
+        role: role || 'other',
+        is_active: true,
+      })
+      .select()
+      .single();
+
+    if (contactError) {
+      console.error('Contact creation error:', contactError);
+      res.status(500).json({ success: false, error: 'Failed to create contact' });
+      return;
+    }
+
+    // Import invite functions dynamically to avoid circular deps
+    const { createInvite } = await import('../lib/invite');
+
+    // Get inviter's name
+    const inviterName = tenant.firstName && tenant.lastName
+      ? `${tenant.firstName} ${tenant.lastName}`
+      : 'Your Team';
+
+    // Create invite for the new team member
+    const inviteResult = await createInvite({
+      email: email.toLowerCase(),
+      companyName: undefined, // Will be linked to existing company
+      invitedById: tenant.userId,
+      invitedByName: inviterName,
+      expirationDays: 14,
+      metadata: {
+        inviteType: 'team_member',
+        contactId: contact.id,
+        companyId: tenant.companyId,
+      },
+    });
+
+    if (!inviteResult.success) {
+      // Contact was created but invite failed - still return success with warning
+      res.json({
+        success: true,
+        contact,
+        invite: null,
+        warning: 'Contact created but invite email could not be sent',
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      contact,
+      invite: inviteResult.invite,
+      message: `Invitation sent to ${email}`,
+    });
+  } catch (error) {
+    console.error('Team invite error:', error);
+    res.status(500).json({ success: false, error: 'Failed to invite team member' });
+  }
+});
+
+/**
+ * GET /api/portal/team
+ * Get team members and pending invitations for the user's company
+ */
+router.get('/team', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const client = req.supabaseClient!;
+    const tenant = req.tenant!;
+
+    if (!tenant.companyId) {
+      res.status(403).json({ success: false, error: 'Company not found for user' });
+      return;
+    }
+
+    // Get all contacts for this company
+    const { data: contacts, error: contactsError } = await client
+      .from('contacts')
+      .select('*')
+      .eq('company_id', tenant.companyId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true });
+
+    if (contactsError) {
+      console.error('Team fetch error:', contactsError);
+      res.status(500).json({ success: false, error: 'Failed to fetch team members' });
+      return;
+    }
+
+    // Get pending invitations for this company
+    const { data: invites, error: invitesError } = await client
+      .from('invites')
+      .select('*')
+      .eq('status', 'pending')
+      .contains('metadata', { companyId: tenant.companyId });
+
+    res.json({
+      success: true,
+      contacts: contacts || [],
+      pendingInvites: invites || [],
+    });
+  } catch (error) {
+    console.error('Team fetch error:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch team' });
+  }
+});
+
+/**
  * GET /api/portal/projects/:projectId/activity
  * Get activity log for a project
  */
