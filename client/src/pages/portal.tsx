@@ -46,7 +46,10 @@ import {
   Info,
   Zap,
   MessageSquare,
-  FileWarning
+  FileWarning,
+  Upload,
+  Trash2,
+  File
 } from "lucide-react";
 import { useAuth, useSignOut } from "../hooks/useAuth";
 import logo from "@assets/ClaimsIQ_Logo_02-09[31]_1767489942619.png";
@@ -248,6 +251,78 @@ function usePasswordStrength() {
       });
       if (!response.ok) throw new Error('Failed to check password strength');
       return response.json();
+    },
+  });
+}
+
+function useDocuments(projectId: string | null) {
+  return useQuery({
+    queryKey: ['portal', 'documents', projectId],
+    queryFn: async () => {
+      if (!projectId) throw new Error('No project ID');
+      const response = await fetch(`/api/portal/projects/${projectId}/documents`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to fetch documents');
+      const data = await response.json();
+      return data.documents;
+    },
+    enabled: !!projectId,
+  });
+}
+
+function useUploadDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ projectId, file }: { projectId: string; file: File }) => {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`/api/portal/projects/${projectId}/documents/upload`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to upload document');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portal', 'documents'] });
+      queryClient.invalidateQueries({ queryKey: ['portal', 'project'] });
+    },
+  });
+}
+
+function useDeleteDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (documentId: string) => {
+      const response = await fetch(`/api/portal/documents/${documentId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to delete document');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portal', 'documents'] });
+      queryClient.invalidateQueries({ queryKey: ['portal', 'project'] });
+    },
+  });
+}
+
+function useDownloadDocument() {
+  return useMutation({
+    mutationFn: async (documentId: string) => {
+      const response = await fetch(`/api/portal/documents/${documentId}/download`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to get download URL');
+      const data = await response.json();
+      return data;
     },
   });
 }
@@ -584,14 +659,87 @@ export function SOWPage() {
   const { data: projects, isLoading: projectsLoading } = useProjects();
   const currentProject = projects?.[0];
   const { data: project, isLoading: projectLoading } = useProject(currentProject?.id || null);
+  const { data: documents, isLoading: documentsLoading } = useDocuments(currentProject?.id || null);
   const { toast } = useToast();
   const [showChangesModal, setShowChangesModal] = useState(false);
   const [changesNote, setChangesNote] = useState('');
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const approveSow = useApproveSow();
+  const uploadDocument = useUploadDocument();
+  const deleteDocument = useDeleteDocument();
+  const downloadDocument = useDownloadDocument();
 
   const isLoading = projectsLoading || projectLoading;
   const isAlreadySigned = !!(project as any)?.sow_signed_at;
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !currentProject?.id) return;
+
+    setIsUploading(true);
+    try {
+      await uploadDocument.mutateAsync({ projectId: currentProject.id, file });
+      toast({
+        title: "Document uploaded",
+        description: `${file.name} has been uploaded successfully.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : "Failed to upload document",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      event.target.value = '';
+    }
+  };
+
+  const handleDownloadDoc = async (docId: string, docName: string) => {
+    try {
+      const result = await downloadDocument.mutateAsync(docId);
+      // Open the signed URL in a new tab
+      window.open(result.url, '_blank');
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: error instanceof Error ? error.message : "Failed to download document",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteDoc = async (docId: string, docName: string) => {
+    if (!confirm(`Are you sure you want to delete "${docName}"?`)) return;
+
+    try {
+      await deleteDocument.mutateAsync(docId);
+      toast({
+        title: "Document deleted",
+        description: `${docName} has been deleted.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Delete failed",
+        description: error instanceof Error ? error.message : "Failed to delete document",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const getFileIcon = (fileType: string) => {
+    if (fileType.includes('pdf')) return FileText;
+    if (fileType.includes('image')) return FileCheck;
+    return File;
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
 
   const handleApproveSign = async () => {
     if (!project || isAlreadySigned) return;
@@ -637,45 +785,39 @@ export function SOWPage() {
     if (!project) return;
     setIsDownloading(true);
 
-    // Simulate PDF generation
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    try {
+      // Fetch real PDF from server
+      const response = await fetch(`/api/portal/projects/${project.id}/sow/pdf`, {
+        credentials: 'include',
+      });
 
-    // Create a simple text file as a placeholder (in production, this would be actual PDF generation)
-    const content = `
-STATEMENT OF WORK
-=================
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF');
+      }
 
-Project ID: ${project.id.slice(0, 8)}
-Company: ${project.company?.legal_name || 'Company'}
-Date: ${format(new Date(project.created_at), 'MMMM d, yyyy')}
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ClaimsIQ_SOW_${project.id.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
 
-SELECTED MODULES:
-${project.module_selections?.filter(m => m.is_selected).map(m => `- ${m.module_type.toUpperCase()}`).join('\n') || '- None selected'}
-
-IMPLEMENTATION TIMELINE:
-- Week 1-2: Kickoff & Configuration
-- Week 3-6: Integration
-- Week 7-8: UAT & Sign-off
-
-This document outlines the implementation services to be provided by Claims IQ Inc.
-    `.trim();
-
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ClaimsIQ_SOW_${project.id.slice(0, 8)}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-
-    toast({
-      title: "Download Started",
-      description: "Your SOW document is being downloaded.",
-    });
-
-    setIsDownloading(false);
+      toast({
+        title: "Download Complete",
+        description: "Your SOW document has been downloaded.",
+      });
+    } catch (error) {
+      toast({
+        title: "Download Failed",
+        description: error instanceof Error ? error.message : "Failed to generate PDF",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   if (isLoading) {
@@ -904,24 +1046,284 @@ This document outlines the implementation services to be provided by Claims IQ I
               )}
             </CardContent>
          </Card>
+
+         {/* Document Upload Section */}
+         <Card className="border-border">
+            <CardHeader>
+              <CardTitle className="text-lg font-display flex items-center gap-2">
+                <File className="h-5 w-5" />
+                Documents
+              </CardTitle>
+              <CardDescription>Upload and manage project documents.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Upload Button */}
+              <div className="space-y-2">
+                <Label htmlFor="file-upload" className="cursor-pointer">
+                  <div className="border-2 border-dashed border-border rounded-lg p-4 hover:border-primary/50 hover:bg-muted/50 transition-colors text-center">
+                    <input
+                      id="file-upload"
+                      type="file"
+                      className="hidden"
+                      onChange={handleFileUpload}
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif"
+                      disabled={isUploading}
+                    />
+                    {isUploading ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        <span className="text-sm text-muted-foreground">Uploading...</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <Upload className="h-8 w-8 text-muted-foreground" />
+                        <span className="text-sm font-medium">Click to upload</span>
+                        <span className="text-xs text-muted-foreground">PDF, Word, Excel, Images (max 10MB)</span>
+                      </div>
+                    )}
+                  </div>
+                </Label>
+              </div>
+
+              {/* Document List */}
+              {documentsLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                </div>
+              ) : documents && documents.length > 0 ? (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {documents.map((doc: any) => {
+                    const FileIcon = getFileIcon(doc.file_type);
+                    return (
+                      <div key={doc.id} className="flex items-center gap-2 p-2 rounded-lg border hover:bg-muted/50 group">
+                        <div className="p-1.5 rounded bg-muted">
+                          <FileIcon className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{doc.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatFileSize(doc.file_size)} • {format(new Date(doc.created_at), 'MMM d')}
+                          </p>
+                        </div>
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => handleDownloadDoc(doc.id, doc.name)}
+                            disabled={downloadDocument.isPending}
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteDoc(doc.id, doc.name)}
+                            disabled={deleteDocument.isPending}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-muted-foreground">
+                  <p className="text-sm">No documents uploaded yet.</p>
+                </div>
+              )}
+            </CardContent>
+         </Card>
        </div>
     </div>
   );
 }
 
 // --- Integration Page ---
+// API hooks for Integration Page
+function useWebhooks(projectId: string | null) {
+  return useQuery({
+    queryKey: ['portal', 'webhooks', projectId],
+    queryFn: async () => {
+      if (!projectId) throw new Error('No project ID');
+      const response = await fetch(`/api/portal/projects/${projectId}/webhooks`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to fetch webhooks');
+      const data = await response.json();
+      return data.webhooks;
+    },
+    enabled: !!projectId,
+  });
+}
+
+function useCreateWebhook() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ projectId, url, events, description }: { projectId: string; url: string; events?: string[]; description?: string }) => {
+      const response = await fetch(`/api/portal/projects/${projectId}/webhooks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ url, events, description }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to create webhook');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portal', 'webhooks'] });
+    },
+  });
+}
+
+function useDeleteWebhook() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (webhookId: string) => {
+      const response = await fetch(`/api/portal/webhooks/${webhookId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to delete webhook');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portal', 'webhooks'] });
+    },
+  });
+}
+
+function useRegenerateApiCredentials() {
+  return useMutation({
+    mutationFn: async (projectId: string) => {
+      const response = await fetch(`/api/portal/projects/${projectId}/api-credentials/regenerate`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to regenerate credentials');
+      }
+      return response.json();
+    },
+  });
+}
+
+function useIntegrations(projectId: string | null) {
+  return useQuery({
+    queryKey: ['portal', 'integrations', projectId],
+    queryFn: async () => {
+      if (!projectId) throw new Error('No project ID');
+      const response = await fetch(`/api/portal/projects/${projectId}/integrations`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to fetch integrations');
+      const data = await response.json();
+      return data.integrations;
+    },
+    enabled: !!projectId,
+  });
+}
+
+function useCreateIntegration() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ projectId, systemName, systemType, connectionMethod, apiDocumentationUrl, notes }: {
+      projectId: string;
+      systemName: string;
+      systemType: string;
+      connectionMethod?: string;
+      apiDocumentationUrl?: string;
+      notes?: string;
+    }) => {
+      const response = await fetch(`/api/portal/projects/${projectId}/integrations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ systemName, systemType, connectionMethod, apiDocumentationUrl, notes }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to create integration');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portal', 'integrations'] });
+    },
+  });
+}
+
 export function IntegrationPage() {
   const { data: projects } = useProjects();
   const currentProject = projects?.[0];
   const { data: project, isLoading } = useProject(currentProject?.id || null);
+  const { data: webhooks, isLoading: webhooksLoading } = useWebhooks(currentProject?.id || null);
+  const { data: integrations } = useIntegrations(currentProject?.id || null);
   const { toast } = useToast();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [showCredentials, setShowCredentials] = useState<{ apiKey: string; apiSecret: string } | null>(null);
+
+  const createWebhook = useCreateWebhook();
+  const deleteWebhook = useDeleteWebhook();
+  const regenerateCredentials = useRegenerateApiCredentials();
 
   const copyToClipboard = (text: string, keyName: string) => {
     navigator.clipboard.writeText(text);
     setCopiedKey(keyName);
     toast({ title: "Copied!", description: `${keyName} copied to clipboard` });
     setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const handleCreateWebhook = async () => {
+    if (!currentProject?.id || !webhookUrl) {
+      toast({ title: "URL required", description: "Please enter a webhook URL", variant: "destructive" });
+      return;
+    }
+    try {
+      const result = await createWebhook.mutateAsync({
+        projectId: currentProject.id,
+        url: webhookUrl,
+        events: ['*'],
+      });
+      toast({
+        title: "Webhook created!",
+        description: `Secret: ${result.webhook.secret.slice(0, 20)}... (copied to clipboard)`,
+      });
+      navigator.clipboard.writeText(result.webhook.secret);
+      setWebhookUrl('');
+    } catch (error) {
+      toast({
+        title: "Failed to create webhook",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRegenerateCredentials = async () => {
+    if (!currentProject?.id) return;
+    try {
+      const result = await regenerateCredentials.mutateAsync(currentProject.id);
+      setShowCredentials(result.credentials);
+      toast({
+        title: "Credentials regenerated!",
+        description: "Save your new API secret - it won't be shown again.",
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to regenerate",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    }
   };
 
   if (isLoading) {
@@ -933,17 +1335,29 @@ export function IntegrationPage() {
     );
   }
 
-  // Demo API credentials (would be real in production)
-  const apiCredentials = {
-    clientId: `ciq_${currentProject?.id?.slice(0, 8) || 'demo'}_client`,
-    apiKey: `sk_live_${currentProject?.id?.slice(0, 16) || 'demo1234567890'}...`,
-    webhookSecret: `whsec_${currentProject?.id?.slice(0, 12) || 'webhook123'}...`,
+  const apiCredentials = showCredentials || {
+    apiKey: (project as any)?.api_key || `ciq_${currentProject?.id?.slice(0, 8) || 'demo'}_pending`,
+    apiSecret: '••••••••••••••••••••••••',
   };
 
+  const webhookCount = webhooks?.length || 0;
   const integrationStatus = {
-    api: project?.status === 'live' ? 'connected' : 'pending',
-    webhook: 'pending',
+    api: (project as any)?.api_key ? 'connected' : 'pending',
+    webhook: webhookCount > 0 ? 'connected' : 'pending',
     sso: 'not_configured',
+  };
+
+  const handleDeleteWebhook = async (webhookId: string) => {
+    try {
+      await deleteWebhook.mutateAsync(webhookId);
+      toast({ title: "Webhook deleted" });
+    } catch (error) {
+      toast({
+        title: "Failed to delete webhook",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -977,19 +1391,25 @@ export function IntegrationPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-amber-500">
+        <Card className={`border-l-4 ${integrationStatus.webhook === 'connected' ? 'border-l-green-500' : 'border-l-amber-500'}`}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-amber-100">
-                  <RefreshCw className="h-5 w-5 text-amber-600" />
+                <div className={`p-2 rounded-lg ${integrationStatus.webhook === 'connected' ? 'bg-green-100' : 'bg-amber-100'}`}>
+                  <RefreshCw className={`h-5 w-5 ${integrationStatus.webhook === 'connected' ? 'text-green-600' : 'text-amber-600'}`} />
                 </div>
                 <div>
                   <p className="font-medium">Webhooks</p>
-                  <p className="text-sm text-muted-foreground">Pending Setup</p>
+                  <p className="text-sm text-muted-foreground">
+                    {webhookCount > 0 ? `${webhookCount} configured` : 'Pending Setup'}
+                  </p>
                 </div>
               </div>
-              <Clock className="h-5 w-5 text-amber-500" />
+              {integrationStatus.webhook === 'connected' ? (
+                <CheckCircle className="h-5 w-5 text-green-500" />
+              ) : (
+                <Clock className="h-5 w-5 text-amber-500" />
+              )}
             </div>
           </CardContent>
         </Card>
@@ -1029,28 +1449,20 @@ export function IntegrationPage() {
             </AlertDescription>
           </Alert>
 
+          {showCredentials && (
+            <Alert className="border-green-200 bg-green-50">
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              <AlertDescription className="text-green-800">
+                <strong>New credentials generated!</strong> Save your API secret now - it won't be shown again.
+              </AlertDescription>
+            </Alert>
+          )}
+
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Client ID</Label>
+              <Label>API Key</Label>
               <div className="flex gap-2">
-                <Input value={apiCredentials.clientId} readOnly className="font-mono bg-muted" />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => copyToClipboard(apiCredentials.clientId, 'Client ID')}
-                >
-                  {copiedKey === 'Client ID' ? <CheckCircle className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>API Key (Live)</Label>
-              <div className="flex gap-2">
-                <div className="flex-1 relative">
-                  <Input value={apiCredentials.apiKey} readOnly className="font-mono bg-muted pr-10" type="password" />
-                  <Eye className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                </div>
+                <Input value={apiCredentials.apiKey} readOnly className="font-mono bg-muted" />
                 <Button
                   variant="outline"
                   size="icon"
@@ -1059,32 +1471,60 @@ export function IntegrationPage() {
                   {copiedKey === 'API Key' ? <CheckCircle className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">This key will be fully revealed after your contract is signed.</p>
+              {!showCredentials && (
+                <p className="text-xs text-muted-foreground">Generate new credentials to see your API key.</p>
+              )}
             </div>
 
             <div className="space-y-2">
-              <Label>Webhook Secret</Label>
+              <Label>API Secret</Label>
               <div className="flex gap-2">
-                <Input value={apiCredentials.webhookSecret} readOnly className="font-mono bg-muted" type="password" />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => copyToClipboard(apiCredentials.webhookSecret, 'Webhook Secret')}
-                >
-                  {copiedKey === 'Webhook Secret' ? <CheckCircle className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                </Button>
+                <div className="flex-1 relative">
+                  <Input
+                    value={apiCredentials.apiSecret}
+                    readOnly
+                    className="font-mono bg-muted pr-10"
+                    type={showCredentials ? "text" : "password"}
+                  />
+                  <Eye className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                </div>
+                {showCredentials && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => copyToClipboard(apiCredentials.apiSecret, 'API Secret')}
+                  >
+                    {copiedKey === 'API Secret' ? <CheckCircle className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                )}
               </div>
+              {showCredentials && (
+                <p className="text-xs text-destructive font-medium">⚠️ Copy this secret now. It will not be shown again.</p>
+              )}
             </div>
           </div>
 
           <Separator />
 
           <div className="flex gap-3">
-            <Button variant="outline" className="flex items-center gap-2">
-              <RefreshCw className="h-4 w-4" />
-              Regenerate Keys
+            <Button
+              variant="outline"
+              className="flex items-center gap-2"
+              onClick={handleRegenerateCredentials}
+              disabled={regenerateCredentials.isPending}
+            >
+              {regenerateCredentials.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              {regenerateCredentials.isPending ? 'Generating...' : 'Regenerate Keys'}
             </Button>
-            <Button variant="outline" className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              className="flex items-center gap-2"
+              onClick={() => window.open('https://docs.claimsiq.com/api', '_blank')}
+            >
               <ExternalLink className="h-4 w-4" />
               View API Docs
             </Button>
@@ -1102,14 +1542,70 @@ export function IntegrationPage() {
           <CardDescription>Configure webhooks to receive real-time notifications about claim events.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Existing Webhooks */}
+          {webhooks && webhooks.length > 0 && (
+            <div className="space-y-3">
+              <Label>Registered Webhooks</Label>
+              <div className="space-y-2">
+                {webhooks.map((webhook: any) => (
+                  <div key={webhook.id} className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className={`p-1.5 rounded ${webhook.is_active ? 'bg-green-100' : 'bg-slate-100'}`}>
+                        <Globe className={`h-4 w-4 ${webhook.is_active ? 'text-green-600' : 'text-slate-500'}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-mono truncate">{webhook.url}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {webhook.events?.includes('*') ? 'All events' : webhook.events?.join(', ')}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => handleDeleteWebhook(webhook.id)}
+                      disabled={deleteWebhook.isPending}
+                    >
+                      {deleteWebhook.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <XCircle className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <Separator />
+            </div>
+          )}
+
+          {/* Add New Webhook */}
           <div className="space-y-2">
-            <Label>Webhook Endpoint URL</Label>
-            <Input placeholder="https://your-domain.com/webhooks/claims-iq" />
-            <p className="text-xs text-muted-foreground">We'll send POST requests to this URL when events occur.</p>
+            <Label>Add New Webhook Endpoint</Label>
+            <div className="flex gap-2">
+              <Input
+                placeholder="https://your-domain.com/webhooks/claims-iq"
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                onClick={handleCreateWebhook}
+                disabled={createWebhook.isPending || !webhookUrl.trim()}
+              >
+                {createWebhook.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  'Add'
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">We'll send POST requests to this URL when events occur. A secret will be generated for signature verification.</p>
           </div>
 
           <div className="space-y-3">
-            <Label>Event Subscriptions</Label>
+            <Label>Supported Events</Label>
             <div className="grid md:grid-cols-2 gap-3">
               {[
                 { id: 'claim.created', label: 'Claim Created', desc: 'When a new claim is submitted' },
@@ -1117,18 +1613,17 @@ export function IntegrationPage() {
                 { id: 'document.processed', label: 'Document Processed', desc: 'When AI finishes analyzing a document' },
                 { id: 'status.changed', label: 'Status Changed', desc: 'When claim status updates' },
               ].map((event) => (
-                <div key={event.id} className="flex items-start gap-3 p-3 rounded-lg border hover:bg-muted/50">
-                  <Switch id={event.id} />
+                <div key={event.id} className="flex items-start gap-3 p-3 rounded-lg border bg-muted/20">
+                  <CheckCircle className="h-4 w-4 text-green-500 mt-0.5" />
                   <div>
-                    <Label htmlFor={event.id} className="font-medium cursor-pointer">{event.label}</Label>
+                    <p className="font-medium text-sm">{event.label}</p>
                     <p className="text-xs text-muted-foreground">{event.desc}</p>
                   </div>
                 </div>
               ))}
             </div>
+            <p className="text-xs text-muted-foreground">All events are sent by default. Contact support for custom event filtering.</p>
           </div>
-
-          <Button className="w-full md:w-auto">Save Webhook Configuration</Button>
         </CardContent>
       </Card>
 
