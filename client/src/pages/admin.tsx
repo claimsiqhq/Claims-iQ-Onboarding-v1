@@ -1,13 +1,15 @@
 import { Link, useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useToast } from "@/hooks/use-toast";
 import {
   LayoutDashboard,
   Users,
@@ -19,13 +21,40 @@ import {
   MoreHorizontal,
   FileText,
   CheckCircle2,
-  Loader2
+  Loader2,
+  Mail,
+  Copy,
+  X
 } from "lucide-react";
 import { useAuth, useSignOut, useRequireStaff } from "../hooks/useAuth";
 import logo from "@assets/ClaimsIQ_Logo_02-09[31]_1767489942619.png";
 import type { ProjectSummary } from "@shared/types";
 import { format } from "date-fns";
 import { useState } from "react";
+
+// --- API Hooks ---
+function useCreateInvite() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { email: string; companyName?: string; expirationDays?: number }) => {
+      const response = await fetch('/api/invites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to create invite');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'projects'] });
+    },
+  });
+}
 
 // --- API Hooks ---
 function useAdminProjects() {
@@ -91,7 +120,7 @@ function getInitials(firstName?: string, lastName?: string): string {
 }
 
 // --- Layout Component ---
-function AdminLayout({ children }: { children: React.ReactNode }) {
+function AdminLayout({ children, onNewClientClick }: { children: React.ReactNode; onNewClientClick?: () => void }) {
   const [location] = useLocation();
   const { user, isLoading } = useAuth();
   const signOut = useSignOut();
@@ -164,11 +193,13 @@ function AdminLayout({ children }: { children: React.ReactNode }) {
               <Button size="sm" variant="outline" className="hidden sm:flex">
                 <Filter className="mr-2 h-4 w-4" /> Filter View
               </Button>
-              <Link href="/onboarding">
-                <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground">
-                  + New Client
-                </Button>
-              </Link>
+              <Button
+                size="sm"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                onClick={onNewClientClick}
+              >
+                + New Client
+              </Button>
            </div>
         </header>
         <main className="flex-1 p-4 md:p-8 overflow-y-auto">
@@ -200,6 +231,78 @@ export default function AdminDashboard() {
   const { data: projects, isLoading: projectsLoading, error: projectsError } = useAdminProjects();
   const { data: stats, isLoading: statsLoading } = useAdminStats();
   const [searchTerm, setSearchTerm] = useState('');
+  const { toast } = useToast();
+  const createInvite = useCreateInvite();
+
+  // New Client Dialog state
+  const [showNewClientDialog, setShowNewClientDialog] = useState(false);
+  const [inviteForm, setInviteForm] = useState({
+    email: '',
+    companyName: '',
+    expirationDays: 7,
+  });
+  const [inviteResult, setInviteResult] = useState<{ token: string; email: string } | null>(null);
+
+  const handleCreateInvite = async () => {
+    if (!inviteForm.email) {
+      toast({
+        title: "Email required",
+        description: "Please enter an email address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const result = await createInvite.mutateAsync({
+        email: inviteForm.email,
+        companyName: inviteForm.companyName || undefined,
+        expirationDays: inviteForm.expirationDays,
+      });
+
+      if (result.invite?.token) {
+        setInviteResult({
+          token: result.invite.token,
+          email: inviteForm.email,
+        });
+        toast({
+          title: "Invitation sent!",
+          description: `An email has been sent to ${inviteForm.email}.`,
+        });
+      } else {
+        toast({
+          title: "Invitation created",
+          description: `Email sent to ${inviteForm.email}.`,
+        });
+        setShowNewClientDialog(false);
+        setInviteForm({ email: '', companyName: '', expirationDays: 7 });
+      }
+    } catch (error) {
+      toast({
+        title: "Failed to create invite",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const copyInviteLink = () => {
+    if (inviteResult?.token) {
+      const appUrl = window.location.origin;
+      const inviteUrl = `${appUrl}/onboarding/${inviteResult.token}`;
+      navigator.clipboard.writeText(inviteUrl);
+      toast({
+        title: "Link copied!",
+        description: "The invite link has been copied to your clipboard.",
+      });
+    }
+  };
+
+  const closeDialog = () => {
+    setShowNewClientDialog(false);
+    setInviteForm({ email: '', companyName: '', expirationDays: 7 });
+    setInviteResult(null);
+  };
 
   const isLoading = authLoading || projectsLoading || statsLoading;
 
@@ -248,7 +351,115 @@ export default function AdminDashboard() {
   ];
 
   return (
-    <AdminLayout>
+    <AdminLayout onNewClientClick={() => setShowNewClientDialog(true)}>
+      {/* New Client Dialog */}
+      {showNewClientDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md mx-4">
+            <CardHeader className="relative">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-2 top-2"
+                onClick={closeDialog}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+              <CardTitle className="font-display">
+                {inviteResult ? 'Invitation Sent!' : 'Invite New Client'}
+              </CardTitle>
+              <CardDescription>
+                {inviteResult
+                  ? `An invitation email has been sent to ${inviteResult.email}.`
+                  : 'Send an onboarding invitation to a new client.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!inviteResult ? (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="invite-email">Email Address *</Label>
+                    <Input
+                      id="invite-email"
+                      type="email"
+                      placeholder="client@company.com"
+                      value={inviteForm.email}
+                      onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="invite-company">Company Name (optional)</Label>
+                    <Input
+                      id="invite-company"
+                      placeholder="Acme Insurance Co."
+                      value={inviteForm.companyName}
+                      onChange={(e) => setInviteForm({ ...inviteForm, companyName: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="invite-expiration">Invitation Expires In</Label>
+                    <select
+                      id="invite-expiration"
+                      className="w-full p-2 border rounded-md bg-background"
+                      value={inviteForm.expirationDays}
+                      onChange={(e) => setInviteForm({ ...inviteForm, expirationDays: parseInt(e.target.value) })}
+                    >
+                      <option value={7}>7 days</option>
+                      <option value={14}>14 days</option>
+                      <option value={30}>30 days</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <Button variant="outline" className="flex-1" onClick={closeDialog}>
+                      Cancel
+                    </Button>
+                    <Button
+                      className="flex-1"
+                      onClick={handleCreateInvite}
+                      disabled={createInvite.isPending}
+                    >
+                      {createInvite.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Mail className="h-4 w-4 mr-2" />
+                          Send Invite
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label>Invite Link</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        readOnly
+                        value={`${window.location.origin}/onboarding/${inviteResult.token}`}
+                        className="font-mono text-xs bg-muted"
+                      />
+                      <Button variant="outline" size="icon" onClick={copyInviteLink}>
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      You can share this link directly or the client can use the email they received.
+                    </p>
+                  </div>
+                  <Button className="w-full" onClick={closeDialog}>
+                    Done
+                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       <div className="space-y-8">
         {/* Metrics */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">

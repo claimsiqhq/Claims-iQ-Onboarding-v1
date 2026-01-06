@@ -248,10 +248,65 @@ router.post('/submit', async (req: Request, res: Response): Promise<void> => {
         }
       }
 
-      // 6. Mark invite as used
+      // 6. Auto-create checklist items from templates
+      const selectedModuleTypes = Object.entries(formData.modules)
+        .filter(([, selected]) => selected)
+        .map(([type]) => type as ModuleType);
+
+      // Query checklist templates that apply to this project
+      const { data: templates, error: templatesError } = await supabase
+        .from('checklist_templates')
+        .select('id, required_for_modules')
+        .order('order_index', { ascending: true });
+
+      if (!templatesError && templates && templates.length > 0) {
+        // Filter templates: include if module_type is null (universal) OR matches selected modules
+        const applicableTemplates = templates.filter((template) => {
+          const requiredModules = template.required_for_modules as ModuleType[] | null;
+          // If no required modules, it applies to all projects
+          if (!requiredModules || requiredModules.length === 0) {
+            return true;
+          }
+          // If has required modules, check if any match selected modules
+          return requiredModules.some((moduleType: ModuleType) =>
+            selectedModuleTypes.includes(moduleType)
+          );
+        });
+
+        // Create checklist items for each applicable template
+        if (applicableTemplates.length > 0) {
+          const checklistItemsToInsert = applicableTemplates.map((template) => ({
+            project_id: projectId!,
+            template_id: template.id,
+            status: 'pending' as const,
+          }));
+
+          const { error: checklistError } = await supabase
+            .from('checklist_items')
+            .insert(checklistItemsToInsert);
+
+          if (checklistError) {
+            console.error('Checklist items creation error:', checklistError);
+            // Non-fatal, continue with onboarding
+          } else {
+            // Log checklist creation
+            await supabase.from('activity_logs').insert({
+              project_id: projectId,
+              user_id: null,
+              action: 'checklist_items_created',
+              details: {
+                count: applicableTemplates.length,
+                module_types: selectedModuleTypes,
+              },
+            });
+          }
+        }
+      }
+
+      // 7. Mark invite as used
       await markInviteUsed(inviteToken, projectId!);
 
-      // 7. Log activity
+      // 8. Log activity
       await supabase.from('activity_logs').insert({
         project_id: projectId,
         user_id: null, // Invite-based submission
@@ -260,13 +315,11 @@ router.post('/submit', async (req: Request, res: Response): Promise<void> => {
           company_name: formData.company.legal_name,
           contact_email: formData.contact.email,
           invite_email: inviteValidation.invite!.email,
-          modules_selected: Object.entries(formData.modules)
-            .filter(([, selected]) => selected)
-            .map(([type]) => type),
+          modules_selected: selectedModuleTypes,
         },
       });
 
-      // 8. Send welcome email
+      // 9. Send welcome email
       const appUrl = process.env.APP_URL || 'http://localhost:5000';
       await sendWelcomeEmail(
         formData.contact.email,

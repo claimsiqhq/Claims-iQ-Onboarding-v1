@@ -51,9 +51,11 @@ export interface OnboardingProject {
   id: string;
   company_id: string;
   status: ProjectStatus;
+  stage: string | null;
   target_go_live_date: string | null;
   actual_go_live_date: string | null;
   assigned_csm_id: string | null;
+  sow_signed_at: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
