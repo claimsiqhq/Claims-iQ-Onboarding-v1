@@ -164,6 +164,37 @@ export default function Onboarding() {
     retry: false,
   });
 
+  // API mutation for submitting onboarding form (must be before any conditional returns)
+  const submitMutation = useMutation({
+    mutationFn: async (data: OnboardingFormData & { inviteToken: string }) => {
+      const response = await fetch('/api/onboarding/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Submission failed');
+      }
+      return result;
+    },
+    onSuccess: (result) => {
+      toast({
+        title: "Statement of Work Generated",
+        description: result.message || "Your onboarding has been submitted successfully!",
+      });
+      localStorage.setItem('lastProjectId', result.projectId);
+      setTimeout(() => setLocation("/"), 1500);
+    },
+    onError: (error) => {
+      toast({
+        title: "Submission Failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Pre-fill form data from invite or user data
   useEffect(() => {
     if (inviteData) {
@@ -173,7 +204,6 @@ export default function Onboarding() {
         legalName: inviteData.companyName || prev.legalName,
       }));
     } else if (isAuthenticated && user) {
-      // Pre-fill from authenticated user
       setFormData((prev: any) => ({
         ...prev,
         email: user.email || prev.email,
@@ -187,9 +217,6 @@ export default function Onboarding() {
   if (authLoading) {
     return <LoadingInvite />;
   }
-
-  // Allow authenticated portal users to access without invite
-  const hasAccess = isAuthenticated || (inviteToken && inviteData);
 
   // Show access denied if no token AND not authenticated
   if (!inviteToken && !isAuthenticated) {
@@ -216,38 +243,6 @@ export default function Onboarding() {
     setStep((prev) => Math.max(prev - 1, 1));
     window.scrollTo(0, 0);
   };
-
-  // API mutation for submitting onboarding form
-  const submitMutation = useMutation({
-    mutationFn: async (data: OnboardingFormData & { inviteToken: string }) => {
-      const response = await fetch('/api/onboarding/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Submission failed');
-      }
-      return result;
-    },
-    onSuccess: (result) => {
-      toast({
-        title: "Statement of Work Generated",
-        description: result.message || "Your onboarding has been submitted successfully!",
-      });
-      // Store the project ID for reference
-      localStorage.setItem('lastProjectId', result.projectId);
-      setTimeout(() => setLocation("/"), 1500);
-    },
-    onError: (error) => {
-      toast({
-        title: "Submission Failed",
-        description: error instanceof Error ? error.message : "Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
 
   // Transform form data to API format
   const transformFormData = (data: any): OnboardingFormData => {
