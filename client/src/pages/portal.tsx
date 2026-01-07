@@ -543,9 +543,12 @@ export function PortalDashboard() {
              </div>
            </div>
            <Progress value={progress} className="h-3 bg-white/20" />
-           <div className="mt-6 flex gap-3">
+           <div className="mt-6 flex flex-wrap gap-3">
+             <Link href="/onboarding">
+                <Button variant="secondary" className="text-sidebar font-semibold">Start Onboarding Interview</Button>
+             </Link>
              <Link href="/portal/sow">
-                <Button variant="secondary" className="text-sidebar font-semibold">Review Documents</Button>
+                <Button variant="outline" className="text-white border-white/20 hover:bg-white/10">Review Documents</Button>
              </Link>
              <Button variant="outline" className="text-white border-white/20 hover:bg-white/10">Contact CSM</Button>
            </div>

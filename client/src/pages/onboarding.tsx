@@ -18,6 +18,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ChevronRight, ArrowLeft, ArrowRight, Loader2, ShieldX, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import logo from "@assets/ClaimsIQ_Logo_02-09[31]_1767489942619.png";
 import type { OnboardingFormData, CompanySize } from "@shared/types";
 
@@ -133,6 +134,9 @@ export default function Onboarding() {
   // Get invite token from URL params
   const params = useParams<{ token?: string }>();
   const inviteToken = params.token;
+  
+  // Check if user is authenticated as a portal user
+  const { isAuthenticated, user, isLoading: authLoading } = useAuth();
 
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<any>({
@@ -142,7 +146,7 @@ export default function Onboarding() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
-  // Validate invite token
+  // Validate invite token (only if not authenticated)
   const { data: inviteData, isLoading: inviteLoading, error: inviteError } = useQuery({
     queryKey: ['invite', inviteToken],
     queryFn: async () => {
@@ -156,11 +160,11 @@ export default function Onboarding() {
       }
       return result.invite as InviteData;
     },
-    enabled: !!inviteToken,
+    enabled: !!inviteToken && !isAuthenticated,
     retry: false,
   });
 
-  // Pre-fill form data from invite
+  // Pre-fill form data from invite or user data
   useEffect(() => {
     if (inviteData) {
       setFormData((prev: any) => ({
@@ -168,21 +172,37 @@ export default function Onboarding() {
         email: inviteData.email,
         legalName: inviteData.companyName || prev.legalName,
       }));
+    } else if (isAuthenticated && user) {
+      // Pre-fill from authenticated user
+      setFormData((prev: any) => ({
+        ...prev,
+        email: user.email || prev.email,
+        firstName: user.firstName || prev.firstName,
+        lastName: user.lastName || prev.lastName,
+      }));
     }
-  }, [inviteData]);
+  }, [inviteData, isAuthenticated, user]);
 
-  // Show access denied if no token
-  if (!inviteToken) {
-    return <AccessDenied />;
-  }
-
-  // Show loading while validating
-  if (inviteLoading) {
+  // Show loading while checking auth
+  if (authLoading) {
     return <LoadingInvite />;
   }
 
-  // Show access denied on error
-  if (inviteError || !inviteData) {
+  // Allow authenticated portal users to access without invite
+  const hasAccess = isAuthenticated || (inviteToken && inviteData);
+
+  // Show access denied if no token AND not authenticated
+  if (!inviteToken && !isAuthenticated) {
+    return <AccessDenied />;
+  }
+
+  // Show loading while validating invite (only if not authenticated)
+  if (!isAuthenticated && inviteLoading) {
+    return <LoadingInvite />;
+  }
+
+  // Show access denied on invite error (only if not authenticated)
+  if (!isAuthenticated && (inviteError || !inviteData)) {
     return <AccessDenied error={inviteError instanceof Error ? inviteError.message : 'Invalid or expired invite'} />;
   }
 
